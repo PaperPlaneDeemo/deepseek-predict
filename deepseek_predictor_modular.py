@@ -20,7 +20,8 @@ from models.interval_based import (
     create_recent_interval_predictor, create_adaptive_interval_predictor,
     create_weighted_interval_predictor
 )
-from models.neural_networks import MLPPredictor, LSTMPredictor
+# 排除深度学习算法 - 注释掉这行
+# from models.neural_networks import MLPPredictor, LSTMPredictor
 from models.statistical import TrendAnalysisPredictor, SeasonalDecomposePredictor, StatisticalPredictor
 
 
@@ -48,6 +49,7 @@ class DeepSeekPredictorModular:
         self.predictors = {}
         self.predictions = {}
         self.performance_summary = {}
+        self.backtest_results = {}
         
     def _prepare_data(self):
         """数据预处理"""
@@ -73,8 +75,8 @@ class DeepSeekPredictorModular:
         print(f"📊 数据形状: {self.df.shape}")
         
     def _initialize_predictors(self):
-        """初始化所有预测器"""
-        print("🔧 初始化预测器...")
+        """初始化所有预测器（排除深度学习）"""
+        print("🔧 初始化预测器（排除深度学习算法）...")
         
         # 线性模型组
         self.predictors['Linear Models'] = {
@@ -107,11 +109,11 @@ class DeepSeekPredictorModular:
             'Weighted Interval': create_weighted_interval_predictor()
         }
         
-        # 神经网络组
-        self.predictors['Neural Networks'] = {
-            'MLP': MLPPredictor(),
-            'LSTM': LSTMPredictor()
-        }
+        # 排除神经网络组
+        # self.predictors['Neural Networks'] = {
+        #     'MLP': MLPPredictor(),
+        #     'LSTM': LSTMPredictor()
+        # }
         
         # 统计学组
         self.predictors['Statistical'] = {
@@ -123,6 +125,7 @@ class DeepSeekPredictorModular:
         # 计算总数
         total_predictors = sum(len(group) for group in self.predictors.values())
         print(f"🎯 已初始化 {total_predictors} 个预测器，分为 {len(self.predictors)} 个类别")
+        print("🚫 已排除深度学习算法：MLP和LSTM")
         
     def fit_all_models(self):
         """训练所有模型"""
@@ -436,6 +439,424 @@ class DeepSeekPredictorModular:
         
         print("\n" + "="*80)
     
+    def run_backtest(self, start_from=3, verbose=True):
+        """
+        运行回测：从第start_from个数据点开始，逐步预测下一个发布时间
+        
+        Args:
+            start_from: 从第几个数据点开始回测（默认3，即从第3次发布开始）
+            verbose: 是否打印详细信息
+        """
+        print(f"\n🔄 开始回测分析 (从第{start_from}个数据点开始)")
+        print("="*60)
+        
+        backtest_results = {}
+        
+        # 获取所有预测器名称
+        all_predictors = {}
+        for group_name, group_predictors in self.predictors.items():
+            for name, predictor in group_predictors.items():
+                all_predictors[name] = predictor
+        
+        # 初始化结果存储
+        for name in all_predictors.keys():
+            backtest_results[name] = {
+                'predictions': [],
+                'actual_dates': [],
+                'errors_days': [],
+                'success_count': 0,
+                'total_attempts': 0
+            }
+        
+        # 从第start_from个数据点开始逐步预测
+        for i in range(start_from, len(self.df)):
+            target_date = self.df.iloc[i]['date']
+            target_version = self.df.iloc[i]['version']
+            
+            if verbose:
+                print(f"\n📅 预测第{i+1}个发布: {target_version} ({target_date.strftime('%Y-%m-%d')})")
+                print("-" * 40)
+            
+            # 使用前i个数据点训练和预测
+            train_df = self.df.iloc[:i].copy()
+            
+            # 重新计算训练数据的特征
+            train_df['days_since_start'] = (train_df['date'] - train_df['date'].iloc[0]).dt.days
+            train_df['month'] = train_df['date'].dt.month
+            train_df['quarter'] = train_df['date'].dt.quarter
+            train_df['year'] = train_df['date'].dt.year
+            train_df['day_of_year'] = train_df['date'].dt.dayofyear
+            train_df['interval_days'] = train_df['days_since_start'].diff()
+            
+            # 版本特征
+            train_df['is_coder'] = train_df['version'].str.contains('Coder').astype(int)
+            train_df['is_v2'] = train_df['version'].str.contains('V2').astype(int)
+            train_df['is_v3'] = train_df['version'].str.contains('V3').astype(int)
+            train_df['is_r1'] = train_df['version'].str.contains('R1').astype(int)
+            
+            # 对每个预测器进行训练和预测
+            for name, predictor in all_predictors.items():
+                try:
+                    # 重新创建预测器实例以避免状态污染
+                    if name == 'Linear Regression':
+                        predictor = create_linear_predictor()
+                    elif name == 'Ridge Regression':
+                        predictor = create_ridge_predictor()
+                    elif name == 'Lasso Regression':
+                        predictor = create_lasso_predictor()
+                    elif name == 'ARIMA':
+                        predictor = ARIMAPredictor()
+                    elif name == 'Exponential Smoothing':
+                        predictor = ExponentialSmoothingPredictor()
+                    elif name == 'Seasonal Pattern':
+                        predictor = SeasonalPredictor()
+                    elif name == 'Random Forest':
+                        predictor = RandomForestPredictor()
+                    elif name == 'Gradient Boosting':
+                        predictor = GradientBoostingPredictor()
+                    elif name == 'XGBoost':
+                        predictor = XGBoostPredictor()
+                    elif name == 'SVR':
+                        predictor = SVRPredictor()
+                    elif name == 'Mean Interval':
+                        predictor = create_mean_interval_predictor()
+                    elif name == 'Median Interval':
+                        predictor = create_median_interval_predictor()
+                    elif name == 'Recent 3 Mean':
+                        predictor = create_recent_interval_predictor()
+                    elif name == 'Adaptive Interval':
+                        predictor = create_adaptive_interval_predictor()
+                    elif name == 'Weighted Interval':
+                        predictor = create_weighted_interval_predictor()
+                    elif name == 'Trend Analysis':
+                        predictor = TrendAnalysisPredictor()
+                    elif name == 'Seasonal Decompose':
+                        predictor = SeasonalDecomposePredictor()
+                    elif name == 'Statistical Ensemble':
+                        predictor = StatisticalPredictor()
+                    
+                    # 训练模型
+                    predictor.fit(train_df)
+                    
+                    if predictor.is_fitted:
+                        # 预测下一个发布时间
+                        # 使用训练数据的最后一天作为"今天"
+                        last_known_date = train_df['date'].iloc[-1]
+                        predictions = predictor.predict(train_df, n_predictions=1, today=last_known_date)
+                        
+                        backtest_results[name]['total_attempts'] += 1
+                        
+                        if predictions:
+                            pred_date = predictions[0]
+                            error_days = (pred_date - target_date).days
+                            
+                            backtest_results[name]['predictions'].append(pred_date)
+                            backtest_results[name]['actual_dates'].append(target_date)
+                            backtest_results[name]['errors_days'].append(error_days)
+                            
+                            if abs(error_days) <= 30:  # 30天内算成功
+                                backtest_results[name]['success_count'] += 1
+                            
+                            if verbose:
+                                print(f"  🔹 {name}: {pred_date.strftime('%Y-%m-%d')} (误差: {error_days:+d}天)")
+                        else:
+                            backtest_results[name]['errors_days'].append(float('inf'))
+                            if verbose:
+                                print(f"  ❌ {name}: 无预测结果")
+                    else:
+                        backtest_results[name]['total_attempts'] += 1
+                        backtest_results[name]['errors_days'].append(float('inf'))
+                        if verbose:
+                            print(f"  ❌ {name}: 训练失败")
+                            
+                except Exception as e:
+                    backtest_results[name]['total_attempts'] += 1
+                    backtest_results[name]['errors_days'].append(float('inf'))
+                    if verbose:
+                        print(f"  ❌ {name}: 错误 - {str(e)[:50]}...")
+        
+        # 计算回测统计
+        print(f"\n📊 回测统计分析 (共{len(self.df) - start_from}次预测)")
+        print("="*60)
+        
+        backtest_summary = []
+        for name, results in backtest_results.items():
+            if results['total_attempts'] > 0:
+                valid_errors = [e for e in results['errors_days'] if e != float('inf')]
+                
+                if valid_errors:
+                    mae = np.mean(np.abs(valid_errors))
+                    rmse = np.sqrt(np.mean(np.square(valid_errors)))
+                    success_rate = results['success_count'] / results['total_attempts']
+                    
+                    backtest_summary.append({
+                        'Method': name,
+                        'MAE (days)': mae,
+                        'RMSE (days)': rmse,
+                        'Success_Rate': success_rate,
+                        'Valid_Predictions': len(valid_errors),
+                        'Total_Attempts': results['total_attempts']
+                    })
+        
+        # 排序并显示结果
+        if backtest_summary:
+            bt_df = pd.DataFrame(backtest_summary)
+            bt_df = bt_df.sort_values('MAE (days)')
+            
+            print("\n🏆 回测排名 (按MAE排序):")
+            print("-" * 80)
+            print(f"{'方法':<20} {'MAE':<10} {'RMSE':<10} {'成功率':<10} {'有效预测':<10}")
+            print("-" * 80)
+            
+            for _, row in bt_df.head(10).iterrows():
+                print(f"{row['Method']:<20} {row['MAE (days)']:<10.1f} {row['RMSE (days)']:<10.1f} "
+                      f"{row['Success_Rate']:<10.1%} {row['Valid_Predictions']:<10d}")
+            
+            self.backtest_results = backtest_results
+            return bt_df
+        else:
+            print("❌ 没有有效的回测结果")
+            return None
+    
+    def compare_r2_vs_backtest(self):
+        """比较R²和回测结果的关系"""
+        print("\n🔍 比较R²和回测表现的关系")
+        print("="*60)
+        
+        if not hasattr(self, 'backtest_results') or not self.backtest_results:
+            print("❌ 需要先运行回测分析")
+            return None
+        
+        # 收集R²和回测数据
+        comparison_data = []
+        
+        for group_name, group_predictors in self.predictors.items():
+            for name, predictor in group_predictors.items():
+                # 获取R²分数
+                r2_score = None
+                if hasattr(predictor, 'performance_metrics') and predictor.performance_metrics:
+                    r2_score = predictor.performance_metrics.get('R2', None)
+                
+                # 获取回测结果
+                if name in self.backtest_results:
+                    results = self.backtest_results[name]
+                    valid_errors = [e for e in results['errors_days'] if e != float('inf')]
+                    
+                    if valid_errors and r2_score is not None:
+                        mae = np.mean(np.abs(valid_errors))
+                        rmse = np.sqrt(np.mean(np.square(valid_errors)))
+                        success_rate = results['success_count'] / results['total_attempts']
+                        
+                        comparison_data.append({
+                            'Method': name,
+                            'Group': group_name,
+                            'R2_Score': r2_score,
+                            'MAE': mae,
+                            'RMSE': rmse,
+                            'Success_Rate': success_rate,
+                            'Valid_Predictions': len(valid_errors)
+                        })
+        
+        if not comparison_data:
+            print("❌ 没有足够的数据进行比较")
+            return None
+        
+        comp_df = pd.DataFrame(comparison_data)
+        
+        # 计算相关性
+        r2_mae_corr = comp_df['R2_Score'].corr(comp_df['MAE'])
+        r2_success_corr = comp_df['R2_Score'].corr(comp_df['Success_Rate'])
+        
+        print(f"\n📊 相关性分析:")
+        print(f"R² vs MAE相关性: {r2_mae_corr:.3f}")
+        print(f"R² vs 成功率相关性: {r2_success_corr:.3f}")
+        
+        # 按不同指标排序
+        print(f"\n🏆 按R²排序 vs 按MAE排序:")
+        print("-" * 60)
+        print("R²排序 (前5):")
+        r2_top = comp_df.nlargest(5, 'R2_Score')
+        for _, row in r2_top.iterrows():
+            print(f"  {row['Method']:<20} R²:{row['R2_Score']:.3f} MAE:{row['MAE']:.1f}")
+        
+        print("\nMAE排序 (前5):")
+        mae_top = comp_df.nsmallest(5, 'MAE')
+        for _, row in mae_top.iterrows():
+            print(f"  {row['Method']:<20} R²:{row['R2_Score']:.3f} MAE:{row['MAE']:.1f}")
+        
+        # 找出R²高但MAE大的方法
+        print(f"\n⚠️  R²高但回测表现差的方法:")
+        print("-" * 40)
+        high_r2_poor_mae = comp_df[(comp_df['R2_Score'] > 0.8) & (comp_df['MAE'] > 100)]
+        if not high_r2_poor_mae.empty:
+            for _, row in high_r2_poor_mae.iterrows():
+                print(f"  {row['Method']:<20} R²:{row['R2_Score']:.3f} MAE:{row['MAE']:.1f}")
+        else:
+            print("  没有发现这类方法")
+        
+        # 找出R²低但MAE小的方法
+        print(f"\n✅ R²低但回测表现好的方法:")
+        print("-" * 40)
+        low_r2_good_mae = comp_df[(comp_df['R2_Score'] < 0.5) & (comp_df['MAE'] < 50)]
+        if not low_r2_good_mae.empty:
+            for _, row in low_r2_good_mae.iterrows():
+                print(f"  {row['Method']:<20} R²:{row['R2_Score']:.3f} MAE:{row['MAE']:.1f}")
+        else:
+            print("  没有发现这类方法")
+        
+        print(f"\n📝 结论:")
+        if abs(r2_mae_corr) < 0.3:
+            print("❌ R²和回测表现相关性很弱，R²不是选择模型的好指标")
+        elif r2_mae_corr < -0.5:
+            print("✅ R²和回测表现负相关较强，R²是选择模型的好指标")
+        else:
+            print("⚠️  R²和回测表现相关性中等，建议同时参考两个指标")
+        
+        return comp_df
+    
+    def create_backtest_visualization(self):
+        """创建回测结果可视化"""
+        print("\n🎨 创建回测结果可视化...")
+        
+        if not hasattr(self, 'backtest_results') or not self.backtest_results:
+            print("❌ 需要先运行回测分析")
+            return None
+        
+        # 收集回测数据
+        backtest_data = []
+        for name, results in self.backtest_results.items():
+            for i, (pred_date, actual_date, error) in enumerate(zip(
+                results['predictions'], results['actual_dates'], results['errors_days']
+            )):
+                if error != float('inf'):
+                    backtest_data.append({
+                        'Method': name,
+                        'Prediction_Number': i + 1,
+                        'Predicted_Date': pred_date,
+                        'Actual_Date': actual_date,
+                        'Error_Days': error,
+                        'Absolute_Error': abs(error)
+                    })
+        
+        if not backtest_data:
+            print("❌ 没有有效的回测数据")
+            return None
+        
+        bt_df = pd.DataFrame(backtest_data)
+        
+        # 创建可视化
+        fig = make_subplots(
+            rows=2, cols=2,
+            subplot_titles=[
+                '📊 各方法回测误差分布', '📈 回测误差时间序列',
+                '🎯 预测vs实际对比', '🏆 方法性能雷达图'
+            ],
+            specs=[
+                [{"type": "xy"}, {"type": "xy"}],
+                [{"type": "xy"}, {"type": "polar"}]
+            ]
+        )
+        
+        # 1. 误差分布箱线图
+        methods = bt_df['Method'].unique()[:10]  # 限制显示前10个方法
+        colors = px.colors.qualitative.Set3
+        
+        for i, method in enumerate(methods):
+            method_data = bt_df[bt_df['Method'] == method]
+            fig.add_trace(
+                go.Box(
+                    y=method_data['Error_Days'],
+                    name=method,
+                    marker_color=colors[i % len(colors)],
+                    showlegend=False
+                ),
+                row=1, col=1
+            )
+        
+        # 2. 时间序列误差
+        for i, method in enumerate(methods[:5]):  # 只显示前5个方法
+            method_data = bt_df[bt_df['Method'] == method].sort_values('Actual_Date')
+            fig.add_trace(
+                go.Scatter(
+                    x=method_data['Actual_Date'],
+                    y=method_data['Error_Days'],
+                    mode='lines+markers',
+                    name=method,
+                    line=dict(color=colors[i % len(colors)]),
+                    showlegend=True
+                ),
+                row=1, col=2
+            )
+        
+        # 3. 预测vs实际散点图
+        for i, method in enumerate(methods[:5]):
+            method_data = bt_df[bt_df['Method'] == method]
+            fig.add_trace(
+                go.Scatter(
+                    x=method_data['Actual_Date'],
+                    y=method_data['Predicted_Date'],
+                    mode='markers',
+                    name=method,
+                    marker=dict(color=colors[i % len(colors)], size=8),
+                    showlegend=False
+                ),
+                row=2, col=1
+            )
+        
+        # 添加理想线 (y=x)
+        min_date = bt_df['Actual_Date'].min()
+        max_date = bt_df['Actual_Date'].max()
+        fig.add_trace(
+            go.Scatter(
+                x=[min_date, max_date],
+                y=[min_date, max_date],
+                mode='lines',
+                name='理想预测',
+                line=dict(color='red', dash='dash'),
+                showlegend=False
+            ),
+            row=2, col=1
+        )
+        
+        # 4. 雷达图 - 方法性能
+        # 计算每个方法的综合性能指标
+        method_stats = bt_df.groupby('Method').agg({
+            'Absolute_Error': ['mean', 'std'],
+            'Error_Days': lambda x: (abs(x) <= 30).mean()  # 30天内准确率
+        }).reset_index()
+        
+        method_stats.columns = ['Method', 'MAE', 'Std', 'Accuracy']
+        method_stats = method_stats.head(6)  # 前6个方法
+        
+        # 标准化指标 (越小越好的转换为越大越好)
+        method_stats['MAE_Score'] = 1 / (1 + method_stats['MAE'] / 100)
+        method_stats['Stability_Score'] = 1 / (1 + method_stats['Std'] / 100)
+        
+        # 为每个方法创建雷达图
+        for i, row in method_stats.iterrows():
+            fig.add_trace(
+                go.Scatterpolar(
+                    r=[row['MAE_Score'], row['Stability_Score'], row['Accuracy']],
+                    theta=['准确性', '稳定性', '命中率'],
+                    fill='toself',
+                    name=row['Method'],
+                    line=dict(color=colors[i % len(colors)]),
+                    showlegend=False
+                ),
+                row=2, col=2
+            )
+        
+        fig.update_layout(
+            height=1000,
+            title_text="🔄 DeepSeek 回测分析报告",
+            showlegend=True
+        )
+        
+        fig.write_html("deepseek_backtest_analysis.html")
+        print("✅ 回测可视化已保存到 deepseek_backtest_analysis.html")
+        
+        return fig
+    
     def run_complete_analysis(self):
         """运行完整分析流程"""
         print("🎯 开始DeepSeek模型发布预测完整分析")
@@ -465,11 +886,21 @@ class DeepSeekPredictorModular:
         # 8. 创建可视化
         self.create_advanced_visualizations()
         
+        # 9. 运行回测
+        self.run_backtest()
+        
+        # 10. 比较R²和回测结果的关系
+        self.compare_r2_vs_backtest()
+        
+        # 11. 创建回测可视化
+        self.create_backtest_visualization()
+        
         print("\n🎉 分析完成!")
         return {
             'predictions': self.predictions,
             'performance': self.performance_summary,
-            'summary': analysis_summary
+            'summary': analysis_summary,
+            'backtest_results': self.backtest_results
         }
 
 
