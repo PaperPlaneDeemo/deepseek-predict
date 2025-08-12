@@ -32,19 +32,42 @@ class DeepSeekPredictorModular:
         # 原始数据
         self.data = {
             'version': [
-                'DeepSeek Coder', 'DeepSeek-LLM', 'DeepSeek-V2 (Apr)',
-                'DeepSeek-Coder V2 (Jun)', 'DeepSeek-V2 (Jun)', 'DeepSeek-Coder V2 (Jul)',
-                'DeepSeek-V2.5 (Sep)', 'DeepSeek-V3', 'DeepSeek-V2.5 (Dec)',
-                'DeepSeek-R1', 'DeepSeek-V3-0324', 'DeepSeek-R1-0528'
+            'DeepSeek Coder',
+            'DeepSeek-LLM',
+            'DeepSeek-MoE',
+            'DeepSeek-Math',
+            'DeepSeek-V2 (May)',
+            'DeepSeek-Coder V2 (Jun)',
+            'DeepSeek-V2 (Jun)',
+            'DeepSeek-Coder V2 (Jul)',
+            'DeepSeek-V2.5 (Sep)',
+            'DeepSeek-R1-Lite',
+            'DeepSeek-V2.5 (Dec)',
+            'DeepSeek-V3',
+            'DeepSeek-R1',
+            'DeepSeek-V3-0324',
+            'DeepSeek-R1-0528'
             ],
             'date': [
-                '2023-11-02', '2023-11-29', '2024-04-28', '2024-06-14',
-                '2024-06-28', '2024-07-24', '2024-09-05', '2024-12-25',
-                '2024-12-10', '2025-01-20', '2025-03-24', '2025-05-28'
+            '2023-11-02',
+            '2023-11-29',
+            '2024-01-11',
+            '2024-02-06',
+            '2024-05-04',
+            '2024-06-14',
+            '2024-06-28',
+            '2024-07-24',
+            '2024-09-05',
+            '2024-11-20',
+            '2024-12-10',
+            '2024-12-25',
+            '2025-01-20',
+            '2025-03-24',
+            '2025-05-28'
             ]
         }
         
-        self.today = datetime(2025, 7, 4)
+        self.today = datetime(2025, 8, 13)
         self.df = None
         self.predictors = {}
         self.predictions = {}
