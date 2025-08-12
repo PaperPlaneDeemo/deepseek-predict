@@ -291,9 +291,9 @@ class DeepSeekPredictorModular:
             rows=4, cols=2,
             subplot_titles=[
                 '📈 历史发布时间线', '📊 发布间隔分析',
-                '🔮 预测结果对比 (按方法分组)', '⚡ 最早预测分布',
-                '🏆 模型性能排名', '📅 预测日期热力图',
-                '📊 预测一致性分析', '🎯 综合预测建议'
+                '🔮 预测结果对比 (按方法分组)',
+                '🏆 模型性能排名', '⚡ 最早预测分布',
+                '📊 预测一致性分析', '📅 按周预测分布'
             ],
             specs=[
                 [{"secondary_y": False}, {"secondary_y": False}],
@@ -374,17 +374,17 @@ class DeepSeekPredictorModular:
             )
             fig.add_trace(today_line, row=2, col=1)
         
-        # 4. 最早预测分布
+        # 4. 最早预测分布（按月份）
         first_predictions = [dates[0] for dates in self.predictions.values() if dates]
         if first_predictions:
             pred_months = [d.strftime('%Y-%m') for d in first_predictions]
             month_counts = pd.Series(pred_months).value_counts().sort_index()
-            
+
             fig.add_trace(
                 go.Bar(
                     x=month_counts.index,
                     y=month_counts.values,
-                    name='预测集中度',
+                    name='最早预测分布（按月份）',
                     marker_color='lightsteelblue',
                     text=month_counts.values,
                     textposition='auto'
@@ -404,10 +404,26 @@ class DeepSeekPredictorModular:
                     textposition='auto',
                     marker_color='lightgreen'
                 ),
+                row=3, col=1
+            )
+
+        # 6. 预测一致性分析（90天阈值）
+        if first_predictions:
+            within_90 = sum((pred - self.today).days <= 90 for pred in first_predictions)
+            beyond_90 = len(first_predictions) - within_90
+            fig.add_trace(
+                go.Bar(
+                    x=['≤90天', '>90天'],
+                    y=[within_90, beyond_90],
+                    name='预测一致性（3个月阈值）',
+                    marker_color=['#2ca02c', '#d62728'],
+                    text=[within_90, beyond_90],
+                    textposition='auto'
+                ),
                 row=4, col=1
             )
         
-        # 6. 预测统计
+        # 7. 预测统计（按周分布）
         if first_predictions:
             # 按周统计
             week_data = {}
