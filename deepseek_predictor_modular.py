@@ -911,7 +911,7 @@ class DeepSeekPredictorModular:
         self.fit_all_models()
         
         # 4. 生成预测
-        self.generate_all_predictions()
+        self.generate_all_predictions(n_predictions=1)
         
         # 5. 性能分析
         self.analyze_performance()
