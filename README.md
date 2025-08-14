@@ -4,33 +4,13 @@
 
 ## 🚀 项目特点
 
-- **多种预测方法**: 包含15+种预测算法
-  - 线性回归 (Linear Regression)
-  - ARIMA 时间序列分析
-  - 集成学习 (Random Forest, Gradient Boosting, XGBoost, LightGBM)
-  - 支持向量回归 (SVR)
-  - 正则化回归 (Ridge, Lasso)
-  - 基于间隔的预测方法
-
-- **丰富的可视化**: 
-  - Python Plotly 生成的静态分析图表
-  - 交互式HTML网页可视化
-  - 多维度数据展示
-
-- **智能分析**: 
-  - 自动模型性能评估
-  - 预测一致性分析
-  - 置信度评估
+- **多种预测方法**: 包含18+种预测算法（模块化实现，深度学习算法可选）
+- **丰富的可视化**: Python 生成的交互式HTML可视化
+- **智能分析**: 自动模型性能评估和回测分析
 
 ## 📊 数据来源
 
-基于DeepSeek历史发布记录：
-- DeepSeek Coder (2023-11-02)
-- DeepSeek-LLM (2023-11-29)
-- DeepSeek-V2系列 (2024年)
-- DeepSeek-V3 (2024-12-25)
-- DeepSeek-R1系列 (2025年)
-- 等12个历史版本
+基于DeepSeek历史发布记录，示例包含15个数据点用于分析与回测。
 
 ## 🛠️ 安装依赖
 
@@ -40,130 +20,52 @@ pip install -r requirements.txt
 
 ## 📈 使用方法
 
-### 1. 运行Python分析
-
 ```bash
-python deepseek_prediction.py
+python deepseek_predictor_modular.py
 ```
 
-这将：
+运行将：
 - 进行数据预处理和特征工程
-- 运行所有预测算法
-- 生成详细的预测结果
-- 创建可视化图表保存为HTML文件
+- 运行多组预测算法（排除或包含深度学习算法可配置）
+- 生成详细预测结果并保存可视化HTML文件
 
-### 2. 查看交互式网页
+## 🔍 运行示例输出（2025-08-15 当次运行）
 
-直接在浏览器中打开 `interactive_visualization.html` 文件，享受交互式的预测分析体验。
+- 数据预处理完成，数据形状: (15, 12)
+- 初始化并训练 18 个预测器（已排除 MLP 和 LSTM）
+- 成功生成 14 个有效预测结果
+- 回测分析已生成，回测统计示例：Statistical Ensemble MAE: 21.8，Trend Analysis MAE: 22.2
 
-## 🔮 预测方法详解
+## 🔧 生成文件
 
-### 时间序列方法
-- **ARIMA**: 自动参数选择的时间序列预测
-- **指数平滑**: 近期数据加权预测
-- **季节性模式**: 考虑发布的季节性规律
+运行后会生成如下主要文件：
 
-### 机器学习方法
-- **线性回归**: 基于时间趋势的线性预测
-- **集成学习**: 多个决策树的组合预测
-- **深度学习**: XGBoost/LightGBM梯度提升
-- **支持向量机**: 非线性核函数映射
+- deepseek_modular_analysis.html  # 高级分析与交互式可视化
+- deepseek_backtest_analysis.html  # 回测结果可视化
 
-### 间隔分析方法
-- **平均间隔**: 基于历史平均发布间隔
-- **中位数间隔**: 更稳健的中位数预测
-- **近期趋势**: 重点关注最近3次发布模式
-
-## 📋 预测结果示例
-
-```
-🚀 DEEPSEEK 下一代模型发布时间预测结果
-================================================================================
-📅 预测基准日期: 2025年07月04日
-📊 历史数据点: 12 个模型发布记录
-🔮 预测方法数: 14 种
-
-🔹 Linear Regression:
-   第1个模型: 2025年08月15日 (距今 42 天)
-   第2个模型: 2025年10月20日 (距今 108 天)
-   第3个模型: 2025年12月25日 (距今 174 天)
-
-🔹 Ensemble Average:
-   第1个模型: 2025年08月19日 (距今 46 天)
-   第2个模型: 2025年10月24日 (距今 112 天)
-   第3个模型: 2025年12月23日 (距今 172 天)
-
-⚡ 最早预测: 2025年08月12日 (Seasonal Pattern)
-📍 3个月内预测集中度: 9 个方法预测
-```
-
-## 🎯 核心功能
-
-### 特征工程
-- 时间特征：月份、季度、年份、一年中的天数
-- 版本特征：是否为Coder版本、V2/V3/R1系列
-- 滞后特征：前1-2次的发布间隔
-- 移动平均：3期和5期发布间隔的移动平均
-
-### 模型评估
-- **R² Score**: 决定系数，衡量模型拟合度
-- **MAE**: 平均绝对误差
-- **RMSE**: 均方根误差
-- **AIC**: 赤池信息准则（用于ARIMA）
-
-### 预测过滤
-- 自动过滤早于当前日期的预测
-- 设置最小30天发布间隔的合理性约束
-- 多方法一致性验证
-
-## 🌟 交互式可视化功能
-
-- **响应式设计**: 支持桌面和移动设备
-- **实时交互**: 动态图表缩放和过滤
-- **多维展示**: 时间线、间隔分析、预测对比
-- **智能摘要**: 自动生成预测建议和一致性分析
-
-## 📁 文件结构
+## 📁 文件结构（简要）
 
 ```
 deepseek-predict/
-├── deepseek_prediction.py     # 主预测脚本
-├── requirements.txt           # Python依赖
-├── interactive_visualization.html  # 交互式网页
-├── deepseek_prediction_analysis.html  # Python生成的图表
-└── README.md                 # 项目文档
+├── deepseek_predictor_modular.py     # 主预测脚本（模块化实现）
+├── requirements.txt                  # Python依赖
+├── deepseek_modular_analysis.html    # 运行生成的交互式分析
+├── deepseek_backtest_analysis.html   # 回测分析结果
+└── README.md                         # 项目文档
 ```
 
 ## 🔧 自定义配置
 
-可以在 `deepseek_prediction.py` 中修改：
-- 预测基准日期: `self.today = datetime(2025, 7, 4)`
-- 预测数量: 修改循环范围和预测步数
-- 模型参数: 调整各算法的超参数
-- 特征工程: 添加新的时间或版本特征
+可以在 `deepseek_predictor_modular.py` 中修改：
+- 预测基准日期
+- 预测数量和步长
+- 是否包含深度学习模型（MLP、LSTM）
+- 模型超参数与特征工程设置
 
 ## 📚 技术栈
 
-- **数据分析**: pandas, numpy
-- **机器学习**: scikit-learn, xgboost, lightgbm
-- **时间序列**: statsmodels (ARIMA)
-- **可视化**: matplotlib, seaborn, plotly
-- **前端**: HTML5, CSS3, JavaScript (Plotly.js)
-
-## 🤝 贡献指南
-
-欢迎提交 Issue 和 Pull Request！
-
-可以改进的方向：
-- 添加更多预测算法（Prophet、神经网络等）
-- 引入外部因素（市场趋势、竞争对手发布等）
-- 优化特征工程和模型调参
-- 扩展可视化功能
-
-## 📄 许可证
-
-MIT License - 自由使用和修改
+- pandas, numpy, scikit-learn, xgboost, statsmodels, plotly
 
 ---
 
-*本项目仅供学习和研究使用，预测结果不构成投资建议。* 
+*本项目仅供学习和研究使用，预测结果不构成投资建议。*
