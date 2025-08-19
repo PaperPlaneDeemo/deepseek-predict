@@ -76,29 +76,30 @@ class RandomForestPredictor(BasePredictor):
         last_index = len(df)
         current_days = (today - df['date'].iloc[0]).days
         
+        # 计算历史平均发布间隔
+        intervals = df['days_since_start'].diff().dropna()
+        avg_interval = intervals.mean()
+        
         for i in range(1, n_predictions + 1):
-            # 基于历史平均间隔来预测未来时间
-            avg_interval = 60 + i * 30  # 假设间隔逐渐增长
-            future_days = current_days + avg_interval
-            
-            future_date = df['date'].iloc[0] + timedelta(days=future_days)
-            future_month = future_date.month
-            future_quarter = ((future_month - 1) // 3) + 1
-            future_year = future_date.year
+            # 基于历史数据创建未来特征
+            estimated_future_days = current_days + avg_interval * i
+            future_date_est = df['date'].iloc[0] + timedelta(days=estimated_future_days)
             
             X_future = np.array([[
                 last_index + i - 1,
-                future_month,
-                future_quarter,
-                future_year,
+                future_date_est.month,
+                future_date_est.quarter,
+                future_date_est.year,
                 0, 0, 1 if i <= 3 else 0, 1 if i > 3 else 0
             ]])
             
             pred_days = self.model.predict(X_future)[0]
+            pred_date = df['date'].iloc[0] + timedelta(days=int(pred_days))
             
-            # 确保预测日期在未来，使用最大值
-            final_days = max(pred_days, current_days + 30 * i)
-            pred_date = df['date'].iloc[0] + timedelta(days=int(final_days))
+            # 只有当预测明显在过去时才使用约束
+            if pred_date <= today:
+                min_future_days = current_days + avg_interval * 0.2
+                pred_date = df['date'].iloc[0] + timedelta(days=int(min_future_days))
             
             if pred_date > today:
                 future_predictions.append(pred_date)
@@ -156,29 +157,30 @@ class GradientBoostingPredictor(BasePredictor):
         last_index = len(df)
         current_days = (today - df['date'].iloc[0]).days
         
+        # 计算历史平均发布间隔
+        intervals = df['days_since_start'].diff().dropna()
+        avg_interval = intervals.mean()
+        
         for i in range(1, n_predictions + 1):
-            # 基于历史平均间隔来预测未来时间
-            avg_interval = 60 + i * 30  # 假设间隔逐渐增长
-            future_days = current_days + avg_interval
-            
-            future_date = df['date'].iloc[0] + timedelta(days=future_days)
-            future_month = future_date.month
-            future_quarter = ((future_month - 1) // 3) + 1
-            future_year = future_date.year
+            # 基于历史数据创建未来特征
+            estimated_future_days = current_days + avg_interval * i
+            future_date_est = df['date'].iloc[0] + timedelta(days=estimated_future_days)
             
             X_future = np.array([[
                 last_index + i - 1,
-                future_month,
-                future_quarter,
-                future_year,
+                future_date_est.month,
+                future_date_est.quarter,
+                future_date_est.year,
                 0, 0, 1 if i <= 3 else 0, 1 if i > 3 else 0
             ]])
             
             pred_days = self.model.predict(X_future)[0]
+            pred_date = df['date'].iloc[0] + timedelta(days=int(pred_days))
             
-            # 确保预测日期在未来，使用最大值
-            final_days = max(pred_days, current_days + 30 * i)
-            pred_date = df['date'].iloc[0] + timedelta(days=int(final_days))
+            # 只有当预测明显在过去时才使用约束
+            if pred_date <= today:
+                min_future_days = current_days + avg_interval * 0.3
+                pred_date = df['date'].iloc[0] + timedelta(days=int(min_future_days))
             
             if pred_date > today:
                 future_predictions.append(pred_date)
@@ -241,29 +243,30 @@ class XGBoostPredictor(BasePredictor):
         last_index = len(df)
         current_days = (today - df['date'].iloc[0]).days
         
+        # 计算历史平均发布间隔
+        intervals = df['days_since_start'].diff().dropna()
+        avg_interval = intervals.mean()
+        
         for i in range(1, n_predictions + 1):
-            # 基于历史平均间隔来预测未来时间
-            avg_interval = 60 + i * 30  # 假设间隔逐渐增长
-            future_days = current_days + avg_interval
-            
-            future_date = df['date'].iloc[0] + timedelta(days=future_days)
-            future_month = future_date.month
-            future_quarter = ((future_month - 1) // 3) + 1
-            future_year = future_date.year
+            # 基于历史数据创建未来特征
+            estimated_future_days = current_days + avg_interval * i
+            future_date_est = df['date'].iloc[0] + timedelta(days=estimated_future_days)
             
             X_future = np.array([[
                 last_index + i - 1,
-                future_month,
-                future_quarter,
-                future_year,
+                future_date_est.month,
+                future_date_est.quarter,
+                future_date_est.year,
                 0, 0, 1 if i <= 3 else 0, 1 if i > 3 else 0
             ]])
             
             pred_days = self.model.predict(X_future)[0]
+            pred_date = df['date'].iloc[0] + timedelta(days=int(pred_days))
             
-            # 确保预测日期在未来，使用最大值
-            final_days = max(pred_days, current_days + 30 * i)
-            pred_date = df['date'].iloc[0] + timedelta(days=int(final_days))
+            # 只有当预测明显在过去时才使用约束
+            if pred_date <= today:
+                min_future_days = current_days + avg_interval * 0.3
+                pred_date = df['date'].iloc[0] + timedelta(days=int(min_future_days))
             
             if pred_date > today:
                 future_predictions.append(pred_date)
@@ -323,30 +326,31 @@ class SVRPredictor(BasePredictor):
         last_index = len(df)
         current_days = (today - df['date'].iloc[0]).days
         
+        # 计算历史平均发布间隔
+        intervals = df['days_since_start'].diff().dropna()
+        avg_interval = intervals.mean()
+        
         for i in range(1, n_predictions + 1):
-            # 基于历史平均间隔来预测未来时间
-            avg_interval = 60 + i * 30  # 假设间隔逐渐增长
-            future_days = current_days + avg_interval
-            
-            future_date = df['date'].iloc[0] + timedelta(days=future_days)
-            future_month = future_date.month
-            future_quarter = ((future_month - 1) // 3) + 1
-            future_year = future_date.year
+            # 基于历史数据创建未来特征
+            estimated_future_days = current_days + avg_interval * i
+            future_date_est = df['date'].iloc[0] + timedelta(days=estimated_future_days)
             
             X_future = np.array([[
                 last_index + i - 1,
-                future_month,
-                future_quarter,
-                future_year,
+                future_date_est.month,
+                future_date_est.quarter,
+                future_date_est.year,
                 0, 0, 1 if i <= 3 else 0, 1 if i > 3 else 0
             ]])
             
             X_future_scaled = self.scaler.transform(X_future)
             pred_days = self.model.predict(X_future_scaled)[0]
+            pred_date = df['date'].iloc[0] + timedelta(days=int(pred_days))
             
-            # 确保预测日期在未来，使用最大值
-            final_days = max(pred_days, current_days + 30 * i)
-            pred_date = df['date'].iloc[0] + timedelta(days=int(final_days))
+            # 只有当预测明显在过去时才使用约束  
+            if pred_date <= today:
+                min_future_days = current_days + avg_interval * 0.5  # SVR使用稍大的约束
+                pred_date = df['date'].iloc[0] + timedelta(days=int(min_future_days))
             
             if pred_date > today:
                 future_predictions.append(pred_date)

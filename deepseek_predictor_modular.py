@@ -46,7 +46,8 @@ class DeepSeekPredictorModular:
             'DeepSeek-V3',
             'DeepSeek-R1',
             'DeepSeek-V3-0324',
-            'DeepSeek-R1-0528'
+            'DeepSeek-R1-0528',
+            'DeepSeek-V3.1'
             ],
             'date': [
             '2023-11-02',
@@ -63,11 +64,12 @@ class DeepSeekPredictorModular:
             '2024-12-25',
             '2025-01-20',
             '2025-03-24',
-            '2025-05-28'
+            '2025-05-28',
+            '2025-08-19'
             ]
         }
         
-        self.today = datetime(2025, 8, 13)
+        self.today = datetime(2025, 8, 20)
         self.df = None
         self.predictors = {}
         self.predictions = {}
