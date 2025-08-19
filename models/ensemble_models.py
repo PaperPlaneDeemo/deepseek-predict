@@ -74,11 +74,17 @@ class RandomForestPredictor(BasePredictor):
         
         future_predictions = []
         last_index = len(df)
+        current_days = (today - df['date'].iloc[0]).days
         
         for i in range(1, n_predictions + 1):
-            future_month = ((today.month + i * 2 - 1) % 12) + 1
+            # 基于历史平均间隔来预测未来时间
+            avg_interval = 60 + i * 30  # 假设间隔逐渐增长
+            future_days = current_days + avg_interval
+            
+            future_date = df['date'].iloc[0] + timedelta(days=future_days)
+            future_month = future_date.month
             future_quarter = ((future_month - 1) // 3) + 1
-            future_year = today.year + ((today.month + i * 2 - 1) // 12)
+            future_year = future_date.year
             
             X_future = np.array([[
                 last_index + i - 1,
@@ -89,7 +95,10 @@ class RandomForestPredictor(BasePredictor):
             ]])
             
             pred_days = self.model.predict(X_future)[0]
-            pred_date = df['date'].iloc[0] + timedelta(days=int(pred_days))
+            
+            # 确保预测日期在未来，使用最大值
+            final_days = max(pred_days, current_days + 30 * i)
+            pred_date = df['date'].iloc[0] + timedelta(days=int(final_days))
             
             if pred_date > today:
                 future_predictions.append(pred_date)
@@ -145,11 +154,17 @@ class GradientBoostingPredictor(BasePredictor):
         
         future_predictions = []
         last_index = len(df)
+        current_days = (today - df['date'].iloc[0]).days
         
         for i in range(1, n_predictions + 1):
-            future_month = ((today.month + i * 2 - 1) % 12) + 1
+            # 基于历史平均间隔来预测未来时间
+            avg_interval = 60 + i * 30  # 假设间隔逐渐增长
+            future_days = current_days + avg_interval
+            
+            future_date = df['date'].iloc[0] + timedelta(days=future_days)
+            future_month = future_date.month
             future_quarter = ((future_month - 1) // 3) + 1
-            future_year = today.year + ((today.month + i * 2 - 1) // 12)
+            future_year = future_date.year
             
             X_future = np.array([[
                 last_index + i - 1,
@@ -160,7 +175,10 @@ class GradientBoostingPredictor(BasePredictor):
             ]])
             
             pred_days = self.model.predict(X_future)[0]
-            pred_date = df['date'].iloc[0] + timedelta(days=int(pred_days))
+            
+            # 确保预测日期在未来，使用最大值
+            final_days = max(pred_days, current_days + 30 * i)
+            pred_date = df['date'].iloc[0] + timedelta(days=int(final_days))
             
             if pred_date > today:
                 future_predictions.append(pred_date)
@@ -221,11 +239,17 @@ class XGBoostPredictor(BasePredictor):
         
         future_predictions = []
         last_index = len(df)
+        current_days = (today - df['date'].iloc[0]).days
         
         for i in range(1, n_predictions + 1):
-            future_month = ((today.month + i * 2 - 1) % 12) + 1
+            # 基于历史平均间隔来预测未来时间
+            avg_interval = 60 + i * 30  # 假设间隔逐渐增长
+            future_days = current_days + avg_interval
+            
+            future_date = df['date'].iloc[0] + timedelta(days=future_days)
+            future_month = future_date.month
             future_quarter = ((future_month - 1) // 3) + 1
-            future_year = today.year + ((today.month + i * 2 - 1) // 12)
+            future_year = future_date.year
             
             X_future = np.array([[
                 last_index + i - 1,
@@ -236,7 +260,10 @@ class XGBoostPredictor(BasePredictor):
             ]])
             
             pred_days = self.model.predict(X_future)[0]
-            pred_date = df['date'].iloc[0] + timedelta(days=int(pred_days))
+            
+            # 确保预测日期在未来，使用最大值
+            final_days = max(pred_days, current_days + 30 * i)
+            pred_date = df['date'].iloc[0] + timedelta(days=int(final_days))
             
             if pred_date > today:
                 future_predictions.append(pred_date)
@@ -294,11 +321,17 @@ class SVRPredictor(BasePredictor):
         
         future_predictions = []
         last_index = len(df)
+        current_days = (today - df['date'].iloc[0]).days
         
         for i in range(1, n_predictions + 1):
-            future_month = ((today.month + i * 2 - 1) % 12) + 1
+            # 基于历史平均间隔来预测未来时间
+            avg_interval = 60 + i * 30  # 假设间隔逐渐增长
+            future_days = current_days + avg_interval
+            
+            future_date = df['date'].iloc[0] + timedelta(days=future_days)
+            future_month = future_date.month
             future_quarter = ((future_month - 1) // 3) + 1
-            future_year = today.year + ((today.month + i * 2 - 1) // 12)
+            future_year = future_date.year
             
             X_future = np.array([[
                 last_index + i - 1,
@@ -310,7 +343,10 @@ class SVRPredictor(BasePredictor):
             
             X_future_scaled = self.scaler.transform(X_future)
             pred_days = self.model.predict(X_future_scaled)[0]
-            pred_date = df['date'].iloc[0] + timedelta(days=int(pred_days))
+            
+            # 确保预测日期在未来，使用最大值
+            final_days = max(pred_days, current_days + 30 * i)
+            pred_date = df['date'].iloc[0] + timedelta(days=int(final_days))
             
             if pred_date > today:
                 future_predictions.append(pred_date)
