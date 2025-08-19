@@ -14,7 +14,8 @@ from typing import Dict, List
 # 导入所有预测器
 from models.linear_models import create_linear_predictor, create_ridge_predictor, create_lasso_predictor
 from models.time_series import ARIMAPredictor, ExponentialSmoothingPredictor, SeasonalPredictor
-from models.ensemble_models import RandomForestPredictor, GradientBoostingPredictor, XGBoostPredictor, SVRPredictor
+# 注释掉ensemble_models - 16个数据点不适合复杂机器学习模型，容易过拟合
+# from models.ensemble_models import RandomForestPredictor, GradientBoostingPredictor, XGBoostPredictor, SVRPredictor
 from models.interval_based import (
     create_mean_interval_predictor, create_median_interval_predictor,
     create_recent_interval_predictor, create_adaptive_interval_predictor,
@@ -117,13 +118,13 @@ class DeepSeekPredictorModular:
             'Seasonal Pattern': SeasonalPredictor()
         }
         
-        # 集成学习组
-        self.predictors['Ensemble Models'] = {
-            'Random Forest': RandomForestPredictor(),
-            'Gradient Boosting': GradientBoostingPredictor(),
-            'XGBoost': XGBoostPredictor(),
-            'SVR': SVRPredictor()
-        }
+        # 集成学习组 - 注释掉，小数据集不适合复杂模型
+        # self.predictors['Ensemble Models'] = {
+        #     'Random Forest': RandomForestPredictor(),
+        #     'Gradient Boosting': GradientBoostingPredictor(),
+        #     'XGBoost': XGBoostPredictor(),
+        #     'SVR': SVRPredictor()
+        # }
         
         # 间隔分析组
         self.predictors['Interval Based'] = {
@@ -551,14 +552,15 @@ class DeepSeekPredictorModular:
                         predictor = ExponentialSmoothingPredictor()
                     elif name == 'Seasonal Pattern':
                         predictor = SeasonalPredictor()
-                    elif name == 'Random Forest':
-                        predictor = RandomForestPredictor()
-                    elif name == 'Gradient Boosting':
-                        predictor = GradientBoostingPredictor()
-                    elif name == 'XGBoost':
-                        predictor = XGBoostPredictor()
-                    elif name == 'SVR':
-                        predictor = SVRPredictor()
+                    # 注释掉ensemble models - 小数据集不适合
+                    # elif name == 'Random Forest':
+                    #     predictor = RandomForestPredictor()
+                    # elif name == 'Gradient Boosting':
+                    #     predictor = GradientBoostingPredictor()
+                    # elif name == 'XGBoost':
+                    #     predictor = XGBoostPredictor()
+                    # elif name == 'SVR':
+                    #     predictor = SVRPredictor()
                     elif name == 'Mean Interval':
                         predictor = create_mean_interval_predictor()
                     elif name == 'Median Interval':
@@ -649,7 +651,7 @@ class DeepSeekPredictorModular:
             print(f"{'方法':<20} {'MAE':<10} {'RMSE':<10} {'成功率':<10} {'有效预测':<10}")
             print("-" * 80)
             
-            for _, row in bt_df.head(10).iterrows():
+            for _, row in bt_df.head(15).iterrows():
                 print(f"{row['Method']:<20} {row['MAE (days)']:<10.1f} {row['RMSE (days)']:<10.1f} "
                       f"{row['Success_Rate']:<10.1%} {row['Valid_Predictions']:<10d}")
             
