@@ -632,13 +632,64 @@ class DeepSeekPredictorModular:
                     rmse = np.sqrt(np.mean(np.square(valid_errors)))
                     success_rate = results['success_count'] / results['total_attempts']
                     
+                    # 用完整数据集重新训练并预测下一次发布时间
+                    next_release_prediction = "训练失败"
+                    try:
+                        # 创建对应的预测器
+                        if name == 'Linear Regression':
+                            predictor = create_linear_predictor()
+                        elif name == 'Ridge Regression':
+                            predictor = create_ridge_predictor()
+                        elif name == 'Lasso Regression':
+                            predictor = create_lasso_predictor()
+                        elif name == 'ARIMA':
+                            predictor = ARIMAPredictor()
+                        elif name == 'Exponential Smoothing':
+                            predictor = ExponentialSmoothingPredictor()
+                        elif name == 'Seasonal Pattern':
+                            predictor = SeasonalPredictor()
+                        elif name == 'Mean Interval':
+                            predictor = create_mean_interval_predictor()
+                        elif name == 'Median Interval':
+                            predictor = create_median_interval_predictor()
+                        elif name == 'Recent 3 Mean':
+                            predictor = create_recent_interval_predictor()
+                        elif name == 'Adaptive Interval':
+                            predictor = create_adaptive_interval_predictor()
+                        elif name == 'Weighted Interval':
+                            predictor = create_weighted_interval_predictor()
+                        elif name == 'Trend Analysis':
+                            predictor = TrendAnalysisPredictor()
+                        elif name == 'Seasonal Decompose':
+                            predictor = SeasonalDecomposePredictor()
+                        elif name == 'Statistical Ensemble':
+                            predictor = StatisticalPredictor()
+                        else:
+                            predictor = None
+                        
+                        if predictor:
+                            # 用完整数据集训练
+                            predictor.fit(self.df)
+                            if predictor.is_fitted:
+                                # 预测下一次发布时间
+                                next_predictions = predictor.predict(self.df, n_predictions=1, today=self.today)
+                                if next_predictions:
+                                    next_release_prediction = next_predictions[0].strftime('%Y-%m-%d')
+                                else:
+                                    next_release_prediction = "无预测"
+                            else:
+                                next_release_prediction = "训练失败"
+                    except Exception as e:
+                        next_release_prediction = f"错误: {str(e)[:10]}"
+                    
                     backtest_summary.append({
                         'Method': name,
                         'MAE (days)': mae,
                         'RMSE (days)': rmse,
                         'Success_Rate': success_rate,
                         'Valid_Predictions': len(valid_errors),
-                        'Total_Attempts': results['total_attempts']
+                        'Total_Attempts': results['total_attempts'],
+                        'Next_Release': next_release_prediction
                     })
         
         # 排序并显示结果
@@ -647,13 +698,13 @@ class DeepSeekPredictorModular:
             bt_df = bt_df.sort_values('MAE (days)')
             
             print("\n🏆 回测排名 (按MAE排序):")
-            print("-" * 80)
-            print(f"{'方法':<20} {'MAE':<10} {'RMSE':<10} {'成功率':<10} {'有效预测':<10}")
-            print("-" * 80)
+            print("-" * 110)
+            print(f"{'方法':<20} {'MAE':<10} {'RMSE':<10} {'成功率':<10} {'有效预测':<10} {'预测下次发布':<15}")
+            print("-" * 110)
             
             for _, row in bt_df.head(15).iterrows():
                 print(f"{row['Method']:<20} {row['MAE (days)']:<10.1f} {row['RMSE (days)']:<10.1f} "
-                      f"{row['Success_Rate']:<10.1%} {row['Valid_Predictions']:<10d}")
+                      f"{row['Success_Rate']:<10.1%} {row['Valid_Predictions']:<10d} {row['Next_Release']:<15}")
             
             self.backtest_results = backtest_results
             return bt_df
