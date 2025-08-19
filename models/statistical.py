@@ -49,7 +49,7 @@ class TrendAnalysisPredictor(BasePredictor):
         last_index = len(df)
         
         for i in range(1, n_predictions + 1):
-            future_index = last_index + i - 1
+            future_index = last_index + i  # 修复：应该是last_index + i，不是last_index + i - 1
             pred_days = self.slope * future_index + self.intercept
             pred_date = start_date + timedelta(days=int(pred_days))
             
