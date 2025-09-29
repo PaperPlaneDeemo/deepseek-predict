@@ -30,22 +30,43 @@ class IntervalPredictor(BasePredictor):
         }
         super().__init__(strategy_names.get(strategy, f"Interval {strategy}"))
         self.interval_value = None
+        self.interval_floor = None
+        self.interval_cap = None
     
     def fit(self, df: pd.DataFrame) -> None:
         """训练间隔模型"""
         intervals = df['interval_days'].dropna()
+
+        if intervals.empty:
+            raise ValueError("interval_days 为空，无法训练间隔模型")
+
+        # 根据历史数据设定合理的上下限，避免预测出现极端值
+        if len(intervals) > 1:
+            self.interval_floor = max(1.0, float(intervals.quantile(0.1)))
+            self.interval_cap = float(intervals.quantile(0.9))
+        else:
+            value = float(intervals.iloc[0])
+            self.interval_floor = max(1.0, value * 0.8)
+            self.interval_cap = value * 1.2
         
         if self.strategy == 'mean':
-            self.interval_value = intervals.mean()
+            self.interval_value = float(intervals.mean())
         elif self.strategy == 'median':
-            self.interval_value = intervals.median()
+            self.interval_value = float(intervals.median())
         elif self.strategy == 'recent':
-            self.interval_value = intervals.tail(3).mean()
+            self.interval_value = float(intervals.tail(3).mean())
         elif self.strategy == 'exponential':
-            self.interval_value = self._exponential_smoothing(intervals)
+            self.interval_value = float(self._exponential_smoothing(intervals))
         else:
             raise ValueError(f"不支持的策略: {self.strategy}")
-        
+
+        true_intervals = intervals.values.astype(float)
+        preds = np.clip(
+            np.full_like(true_intervals, self.interval_value, dtype=float),
+            self.interval_floor,
+            self.interval_cap
+        )
+        self.evaluate(true_intervals, preds)
         self.is_fitted = True
     
     def _exponential_smoothing(self, intervals, alpha=0.3):
@@ -68,10 +89,12 @@ class IntervalPredictor(BasePredictor):
         last_date = df['date'].iloc[-1]
         
         for i in range(n_predictions):
-            last_date = last_date + timedelta(days=int(max(30, self.interval_value)))
+            interval = float(self.interval_value)
+            interval = float(np.clip(interval, self.interval_floor, self.interval_cap))
+            last_date = last_date + timedelta(days=int(round(interval)))
             if last_date > today:
                 future_predictions.append(last_date)
-        
+
         return future_predictions
 
 
@@ -80,22 +103,45 @@ class AdaptiveIntervalPredictor(BasePredictor):
     
     def __init__(self):
         super().__init__("Adaptive Interval")
-        self.trend_factor = 1.0
         self.base_interval = None
+        self.trend_slope = 0.0
+        self.interval_floor = None
+        self.interval_cap = None
+        self.history_length = 0
     
     def fit(self, df: pd.DataFrame) -> None:
         """训练自适应间隔模型"""
         intervals = df['interval_days'].dropna()
-        
+
+        if intervals.empty:
+            raise ValueError("interval_days 为空，无法训练自适应间隔模型")
+
+        self.history_length = len(intervals)
+
+        if len(intervals) > 1:
+            self.interval_floor = max(1.0, float(intervals.quantile(0.1)))
+            self.interval_cap = float(intervals.quantile(0.9))
+        else:
+            value = float(intervals.iloc[0])
+            self.interval_floor = max(1.0, value * 0.8)
+            self.interval_cap = value * 1.2
+
         # 基础间隔
-        self.base_interval = intervals.mean()
-        
-        # 计算趋势因子
-        if len(intervals) >= 6:
-            recent_intervals = intervals.tail(3).mean()
-            early_intervals = intervals.head(3).mean()
-            self.trend_factor = recent_intervals / early_intervals if early_intervals > 0 else 1.0
-        
+        self.base_interval = float(intervals.mean())
+
+        # 使用线性趋势刻画间隔变化，避免指数放大
+        if len(intervals) >= 3:
+            idx = np.arange(len(intervals))
+            self.trend_slope = float(np.polyfit(idx, intervals, 1)[0])
+            self.trend_slope = float(np.clip(self.trend_slope, -self.base_interval * 0.5, self.base_interval * 0.5))
+        else:
+            self.trend_slope = 0.0
+
+        true_intervals = intervals.values.astype(float)
+        idx = np.arange(self.history_length, dtype=float)
+        preds = self.base_interval + self.trend_slope * idx
+        preds = np.clip(preds, self.interval_floor, self.interval_cap)
+        self.evaluate(true_intervals, preds)
         self.is_fitted = True
     
     def predict(self, df: pd.DataFrame, n_predictions: int = 5, 
@@ -111,12 +157,13 @@ class AdaptiveIntervalPredictor(BasePredictor):
         last_date = df['date'].iloc[-1]
         
         for i in range(n_predictions):
-            # 随时间调整间隔
-            adjusted_interval = self.base_interval * (self.trend_factor ** (i + 1))
-            last_date = last_date + timedelta(days=int(max(30, adjusted_interval)))
+            # 基于线性趋势调整间隔，并限制在历史合理范围内
+            adjusted_interval = self.base_interval + self.trend_slope * (self.history_length + i)
+            interval = float(np.clip(adjusted_interval, self.interval_floor, self.interval_cap))
+            last_date = last_date + timedelta(days=int(round(interval)))
             if last_date > today:
                 future_predictions.append(last_date)
-        
+
         return future_predictions
 
 
@@ -127,16 +174,36 @@ class WeightedIntervalPredictor(BasePredictor):
         super().__init__("Weighted Interval")
         self.decay_rate = decay_rate
         self.weighted_interval = None
+        self.interval_floor = None
+        self.interval_cap = None
     
     def fit(self, df: pd.DataFrame) -> None:
         """训练加权间隔模型"""
         intervals = df['interval_days'].dropna()
-        
+
+        if intervals.empty:
+            raise ValueError("interval_days 为空，无法训练加权间隔模型")
+
+        if len(intervals) > 1:
+            self.interval_floor = max(1.0, float(intervals.quantile(0.1)))
+            self.interval_cap = float(intervals.quantile(0.9))
+        else:
+            value = float(intervals.iloc[0])
+            self.interval_floor = max(1.0, value * 0.8)
+            self.interval_cap = value * 1.2
+
         # 计算加权平均间隔
         weights = np.array([self.decay_rate ** i for i in range(len(intervals))])
         weights = weights[::-1]  # 反转，让最新的数据权重最高
-        
-        self.weighted_interval = np.average(intervals, weights=weights)
+
+        self.weighted_interval = float(np.average(intervals, weights=weights))
+        true_intervals = intervals.values.astype(float)
+        preds = np.clip(
+            np.full_like(true_intervals, self.weighted_interval, dtype=float),
+            self.interval_floor,
+            self.interval_cap
+        )
+        self.evaluate(true_intervals, preds)
         self.is_fitted = True
     
     def predict(self, df: pd.DataFrame, n_predictions: int = 5, 
@@ -152,7 +219,8 @@ class WeightedIntervalPredictor(BasePredictor):
         last_date = df['date'].iloc[-1]
         
         for i in range(n_predictions):
-            last_date = last_date + timedelta(days=int(max(30, self.weighted_interval)))
+            interval = float(np.clip(self.weighted_interval, self.interval_floor, self.interval_cap))
+            last_date = last_date + timedelta(days=int(round(interval)))
             if last_date > today:
                 future_predictions.append(last_date)
         

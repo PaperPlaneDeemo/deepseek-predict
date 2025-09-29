@@ -14,15 +14,11 @@ from typing import Dict, List
 # 导入所有预测器
 from models.linear_models import create_linear_predictor, create_ridge_predictor, create_lasso_predictor
 from models.time_series import ARIMAPredictor, ExponentialSmoothingPredictor, SeasonalPredictor
-# 注释掉ensemble_models - 16个数据点不适合复杂机器学习模型，容易过拟合
-# from models.ensemble_models import RandomForestPredictor, GradientBoostingPredictor, XGBoostPredictor, SVRPredictor
 from models.interval_based import (
     create_mean_interval_predictor, create_median_interval_predictor,
     create_recent_interval_predictor, create_adaptive_interval_predictor,
     create_weighted_interval_predictor
 )
-# 排除深度学习算法 - 注释掉这行
-# from models.neural_networks import MLPPredictor, LSTMPredictor
 from models.statistical import TrendAnalysisPredictor, SeasonalDecomposePredictor, StatisticalPredictor
 
 
@@ -48,7 +44,9 @@ class DeepSeekPredictorModular:
             'DeepSeek-R1',
             'DeepSeek-V3-0324',
             'DeepSeek-R1-0528',
-            'DeepSeek-V3.1'
+            'DeepSeek-V3.1',
+            'DeepSeek-V3.1-Terminus',
+            'DeepSeek-V3.2'
             ],
             'date': [
             '2023-11-02',
@@ -66,11 +64,14 @@ class DeepSeekPredictorModular:
             '2025-01-20',
             '2025-03-24',
             '2025-05-28',
-            '2025-08-19'
+            '2025-08-19',
+            '2025-09-22',
+            '2025-09-29'
             ]
         }
         
-        self.today = datetime(2025, 8, 20)
+        # 固定预测基准日期为 2025-10-01（按需调整）
+        self.today = datetime(2025, 10, 1)
         self.df = None
         self.predictors = {}
         self.predictions = {}
@@ -113,18 +114,10 @@ class DeepSeekPredictorModular:
         
         # 时间序列组
         self.predictors['Time Series'] = {
-            'ARIMA': ARIMAPredictor(),
+            # 'ARIMA': ARIMAPredictor(),
             'Exponential Smoothing': ExponentialSmoothingPredictor(),
             'Seasonal Pattern': SeasonalPredictor()
         }
-        
-        # 集成学习组 - 注释掉，小数据集不适合复杂模型
-        # self.predictors['Ensemble Models'] = {
-        #     'Random Forest': RandomForestPredictor(),
-        #     'Gradient Boosting': GradientBoostingPredictor(),
-        #     'XGBoost': XGBoostPredictor(),
-        #     'SVR': SVRPredictor()
-        # }
         
         # 间隔分析组
         self.predictors['Interval Based'] = {
@@ -135,16 +128,10 @@ class DeepSeekPredictorModular:
             'Weighted Interval': create_weighted_interval_predictor()
         }
         
-        # 排除神经网络组
-        # self.predictors['Neural Networks'] = {
-        #     'MLP': MLPPredictor(),
-        #     'LSTM': LSTMPredictor()
-        # }
-        
         # 统计学组
         self.predictors['Statistical'] = {
             'Trend Analysis': TrendAnalysisPredictor(),
-            'Seasonal Decompose': SeasonalDecomposePredictor(),
+            # 'Seasonal Decompose': SeasonalDecomposePredictor(),
             'Statistical Ensemble': StatisticalPredictor()
         }
         
@@ -178,7 +165,7 @@ class DeepSeekPredictorModular:
         
         print(f"\n📈 训练完成! 成功: {trained_count}, 失败: {failed_count}")
     
-    def generate_all_predictions(self, n_predictions=5):
+    def generate_all_predictions(self, n_predictions=1):
         """生成所有预测"""
         print(f"\n🔮 生成预测 (未来 {n_predictions} 个模型)...")
         
@@ -191,6 +178,8 @@ class DeepSeekPredictorModular:
                         preds = predictor.predict(self.df, n_predictions, self.today)
                         # 过滤有效预测
                         valid_preds = [p for p in preds if p > self.today]
+                        if valid_preds and n_predictions == 1:
+                            valid_preds = valid_preds[:1]
                         if valid_preds:
                             self.predictions[name] = valid_preds
                             prediction_count += 1
@@ -289,171 +278,227 @@ class DeepSeekPredictorModular:
     def create_advanced_visualizations(self):
         """创建高级可视化"""
         print("\n🎨 创建高级可视化...")
-        
+
+        if not self.predictions:
+            print("❌ 没有预测结果，跳过可视化")
+            return None
+
+        group_lookup = {}
+        for group_name, group_predictors in self.predictors.items():
+            for name in group_predictors.keys():
+                group_lookup[name] = group_name
+
+        records = []
+        last_release = self.df['date'].iloc[-1]
+        for name, dates in self.predictions.items():
+            if not dates:
+                continue
+            next_date = min(dates)
+            records.append({
+                'Model': name,
+                'Next Release': next_date,
+                'Days Ahead': (next_date - self.today).days,
+                'Interval From Last': (next_date - last_release).days
+            })
+
+        if not records:
+            print("❌ 无有效预测结果")
+            return None
+
+        pred_df = pd.DataFrame(records)
+        perf_df = getattr(self, 'performance_summary', None)
+        if perf_df is not None and not perf_df.empty:
+            metrics_df = perf_df[['Name', 'Group', 'MAE', 'RMSE']].rename(columns={'Name': 'Model'})
+            pred_df = pred_df.merge(metrics_df, how='left', on='Model')
+        else:
+            pred_df['Group'] = pred_df['Model'].map(group_lookup)
+            pred_df['MAE'] = np.nan
+            pred_df['RMSE'] = np.nan
+
+        pred_df['Group'] = pred_df.get('Group', pd.Series(dtype=str)).fillna(pred_df['Model'].map(group_lookup))
+        pred_df['Group'] = pred_df['Group'].fillna('N/A')
+        pred_df['MAE'] = pred_df['MAE'].astype(float)
+        pred_df['RMSE'] = pred_df['RMSE'].astype(float)
+        pred_df['Days Ahead'] = pred_df['Days Ahead'].astype(int)
+        pred_df['Interval From Last'] = pred_df['Interval From Last'].astype(int)
+
+        sorted_pred_df = pred_df.sort_values(by=['MAE', 'Days Ahead'], na_position='last').reset_index(drop=True)
+
+        timeline_y = self.df['days_since_start']
+        best_predictions = sorted_pred_df.head(3)
+
         fig = make_subplots(
-            rows=4, cols=2,
+            rows=2,
+            cols=2,
+            specs=[[{"type": "xy"}, {"type": "xy"}],
+                   [{"type": "table"}, {"type": "xy"}]],
             subplot_titles=[
-                '📈 历史发布时间线', '📊 发布间隔分析',
-                '🔮 预测结果对比 (按方法分组)',
-                '🏆 模型性能排名', '⚡ 最早预测分布',
-                '📊 预测一致性分析', '📅 按周预测分布'
-            ],
-            specs=[
-                [{"secondary_y": False}, {"secondary_y": False}],
-                [{"colspan": 2}, None],
-                [{"secondary_y": False}, {"secondary_y": False}],
-                [{"secondary_y": False}, {"secondary_y": False}]
+                '📈 历史发布时间线与最佳预测',
+                '🏆 MAE 表现最优模型',
+                '🔮 下一次发布日期预测摘要',
+                '📊 发布间隔分布 & 预测间隔对比'
             ]
         )
-        
-        # 1. 历史时间线
+
+        # 1. 时间线
         fig.add_trace(
             go.Scatter(
                 x=self.df['date'],
-                y=list(range(len(self.df))),
-                mode='markers+lines',
+                y=timeline_y,
+                mode='lines+markers',
                 name='历史发布',
                 text=self.df['version'],
-                hovertemplate='%{text}<br>%{x}<extra></extra>',
-                marker=dict(size=12, color='gold', symbol='diamond'),
-                line=dict(color='lightblue', width=3)
+                hovertemplate='%{text}<br>%{x|%Y-%m-%d}<extra></extra>',
+                line=dict(color='#1f77b4', width=2),
+                marker=dict(size=8)
             ),
             row=1, col=1
         )
-        
-        # 2. 发布间隔
-        intervals = self.df['interval_days'].dropna()
+
+        if not best_predictions.empty:
+            pred_y = (best_predictions['Next Release'] - self.df['date'].iloc[0]).dt.days
+            fig.add_trace(
+                go.Scatter(
+                    x=best_predictions['Next Release'],
+                    y=pred_y,
+                    mode='markers',
+                    name='最佳预测',
+                    marker=dict(size=12, color='#ff7f0e', symbol='diamond'),
+                    text=[f"{row.Model}<br>MAE: {row.MAE:.2f}" if not np.isnan(row.MAE) else row.Model
+                          for row in best_predictions.itertuples()],
+                    hovertemplate='%{text}<br>日期: %{x|%Y-%m-%d}<extra></extra>'
+                ),
+                row=1, col=1
+            )
+
+        fig.update_yaxes(title_text='距首发天数', row=1, col=1)
+        fig.update_xaxes(title_text='日期', row=1, col=1)
+
+        # 2. MAE 排名
+        mae_df = sorted_pred_df.dropna(subset=['MAE']).head(8)
+        if not mae_df.empty:
+            fig.add_trace(
+                go.Bar(
+                    x=mae_df['Model'],
+                    y=mae_df['MAE'],
+                    text=[f"{v:.2f}" for v in mae_df['MAE']],
+                    textposition='auto',
+                    marker_color=px.colors.qualitative.Safe[:len(mae_df)],
+                    name='MAE'
+                ),
+                row=1, col=2
+            )
+            fig.update_yaxes(title_text='MAE (天)', row=1, col=2)
+        else:
+            fig.add_annotation(
+                text='暂无 MAE 信息',
+                xref='x2', yref='y2',
+                x=0.5, y=0.5, showarrow=False,
+                row=1, col=2
+            )
+
+        # 3. 表格摘要
+        table_df = sorted_pred_df.copy()
+        table_df['Next Release'] = table_df['Next Release'].dt.strftime('%Y-%m-%d')
+        table_df['Days Ahead'] = table_df['Days Ahead'].apply(lambda x: f"{x} 天")
+        table_df['Interval From Last'] = table_df['Interval From Last'].apply(lambda x: f"{x} 天")
+        table_df['MAE'] = table_df['MAE'].apply(lambda x: f"{x:.2f}" if not np.isnan(x) else '—')
+        table_df['RMSE'] = table_df['RMSE'].apply(lambda x: f"{x:.2f}" if not np.isnan(x) else '—')
+
         fig.add_trace(
-            go.Bar(
-                x=self.df['version'].iloc[1:],
-                y=intervals,
-                name='发布间隔(天)',
-                text=[f'{int(x)}天' for x in intervals],
-                textposition='auto',
-                marker_color='lightcoral'
+            go.Table(
+                header=dict(
+                    values=['模型', '类别', '下一次发布日期', '距今天数', '距上次间隔', 'MAE', 'RMSE'],
+                    fill_color='#1f77b4',
+                    font=dict(color='white', size=12),
+                    align='left'
+                ),
+                cells=dict(
+                    values=[
+                        table_df['Model'],
+                        table_df['Group'],
+                        table_df['Next Release'],
+                        table_df['Days Ahead'],
+                        table_df['Interval From Last'],
+                        table_df['MAE'],
+                        table_df['RMSE'],
+                    ],
+                    fill_color=['#fdfefe'] * 7,
+                    align='left',
+                    font=dict(size=11)
+                )
             ),
-            row=1, col=2
+            row=2, col=1
         )
-        
-        # 3. 预测结果对比 (按组分类)
-        colors = px.colors.qualitative.Set3
-        method_groups = {}
-        
-        for group_name, group_predictors in self.predictors.items():
-            for name, predictor in group_predictors.items():
-                if name in self.predictions:
-                    method_groups[name] = group_name
-        
-        # 为每个组分配颜色
-        unique_groups = list(set(method_groups.values()))
-        group_colors = {group: colors[i % len(colors)] for i, group in enumerate(unique_groups)}
-        
-        for i, (method, dates) in enumerate(self.predictions.items()):
-            if dates:
-                group = method_groups.get(method, 'Other')
+
+        # 4. 发布间隔直方图
+        intervals = self.df['interval_days'].dropna()
+        if not intervals.empty:
+            bins = min(20, len(intervals))
+            hist_counts, _ = np.histogram(intervals, bins=bins)
+            max_count = hist_counts.max() if hist_counts.size else 1
+            line_height = max_count * 1.05
+
+            fig.add_trace(
+                go.Histogram(
+                    x=intervals,
+                    nbinsx=bins,
+                    marker=dict(color='#9edae5'),
+                    name='历史间隔分布',
+                    opacity=0.85
+                ),
+                row=2, col=2
+            )
+
+            def add_reference_line(value, color, name, dash='dash'):
                 fig.add_trace(
                     go.Scatter(
-                        x=dates,
-                        y=[f'{method}'] * len(dates),
-                        mode='markers',
-                        marker=dict(size=10, color=group_colors.get(group, 'gray')),
-                        name=f'{group}: {method}',
-                        text=[f'预测 {j+1}' for j in range(len(dates))],
-                        hovertemplate='%{text}<br>%{x}<extra></extra>',
-                        showlegend=(i < 10)  # 只显示前10个图例
+                        x=[value, value],
+                        y=[0, line_height],
+                        mode='lines',
+                        name=name,
+                        line=dict(color=color, dash=dash, width=2)
                     ),
-                    row=2, col=1
+                    row=2, col=2
                 )
-        
-        # 添加今天的标记线（简化版本）
-        if self.predictions:
-            today_line = go.Scatter(
-                x=[self.today, self.today],
-                y=[0, len(self.predictions)],
-                mode='lines',
-                line=dict(color='red', dash='dash', width=2),
-                name='今天',
-                showlegend=True
-            )
-            fig.add_trace(today_line, row=2, col=1)
-        
-        # 4. 最早预测分布（按月份）
-        first_predictions = [dates[0] for dates in self.predictions.values() if dates]
-        if first_predictions:
-            pred_months = [d.strftime('%Y-%m') for d in first_predictions]
-            month_counts = pd.Series(pred_months).value_counts().sort_index()
 
-            fig.add_trace(
-                go.Bar(
-                    x=month_counts.index,
-                    y=month_counts.values,
-                    name='最早预测分布（按月份）',
-                    marker_color='lightsteelblue',
-                    text=month_counts.values,
-                    textposition='auto'
-                ),
-                row=3, col=2
-            )
-        
-        # 5. 模型性能排名
-        if hasattr(self, 'performance_summary') and not self.performance_summary.empty:
-            top_performers = self.performance_summary.head(8)
-            fig.add_trace(
-                go.Bar(
-                    x=top_performers['Name'],
-                    y=top_performers['R2'],
-                    name='R² Score',
-                    text=[f'{x:.3f}' for x in top_performers['R2']],
-                    textposition='auto',
-                    marker_color='lightgreen'
-                ),
-                row=3, col=1
+            add_reference_line(intervals.mean(), '#ff7f0e', '平均间隔', dash='dash')
+            add_reference_line(intervals.median(), '#2ca02c', '中位数', dash='dot')
+
+            highlight = sorted_pred_df.dropna(subset=['MAE']).head(3)
+            for idx, (_, row_data) in enumerate(highlight.iterrows()):
+                interval_val = row_data['Interval From Last']
+                color = px.colors.qualitative.Safe[idx % len(px.colors.qualitative.Safe)]
+                add_reference_line(interval_val, color, f"{row_data['Model']} 预测间隔", dash='solid')
+
+            fig.update_xaxes(title_text='发布间隔 (天)', row=2, col=2)
+            fig.update_yaxes(title_text='次数', row=2, col=2)
+        else:
+            fig.add_annotation(
+                text='暂无间隔数据',
+                xref='x4', yref='y4',
+                x=0.5, y=0.5, showarrow=False,
+                row=2, col=2
             )
 
-        # 6. 预测一致性分析（90天阈值）
-        if first_predictions:
-            within_90 = sum((pred - self.today).days <= 90 for pred in first_predictions)
-            beyond_90 = len(first_predictions) - within_90
-            fig.add_trace(
-                go.Bar(
-                    x=['≤90天', '>90天'],
-                    y=[within_90, beyond_90],
-                    name='预测一致性（3个月阈值）',
-                    marker_color=['#2ca02c', '#d62728'],
-                    text=[within_90, beyond_90],
-                    textposition='auto'
-                ),
-                row=4, col=1
-            )
-        
-        # 7. 预测统计（按周分布）
-        if first_predictions:
-            # 按周统计
-            week_data = {}
-            for pred in first_predictions:
-                week = pred.strftime('%Y-W%U')
-                week_data[week] = week_data.get(week, 0) + 1
-            
-            if week_data:
-                fig.add_trace(
-                    go.Bar(
-                        x=list(week_data.keys()),
-                        y=list(week_data.values()),
-                        name='按周预测分布',
-                        marker_color='plum'
-                    ),
-                    row=4, col=2
-                )
-        
         fig.update_layout(
-            height=1600,
-            title_text="🚀 DeepSeek 模型发布预测 - 全面分析报告",
-            showlegend=True
+            height=1000,
+            title_text="🚀 DeepSeek 发布预测概览",
+            showlegend=True,
+            template="plotly_white",
+            font=dict(size=12),
+            hovermode="closest",
+            margin=dict(l=40, r=40, t=60, b=40)
         )
-        
-        fig.write_html("deepseek_modular_analysis.html")
+
+        fig.write_html(
+            "deepseek_modular_analysis.html",
+            include_plotlyjs='cdn',
+            full_html=True,
+            config={'displayModeBar': True, 'displaylogo': False}
+        )
         print("✅ 高级可视化已保存到 deepseek_modular_analysis.html")
-        
+
         return fig
     
     def print_detailed_results(self):
@@ -838,37 +883,54 @@ class DeepSeekPredictorModular:
         
         bt_df = pd.DataFrame(backtest_data)
         
-        # 创建可视化
+        summary_df = bt_df.groupby('Method').agg(
+            MAE=('Absolute_Error', 'mean'),
+            MedianAE=('Absolute_Error', 'median'),
+            Std=('Absolute_Error', 'std'),
+            HitRate30=('Absolute_Error', lambda x: (x <= 30).mean()),
+            Samples=('Absolute_Error', 'count')
+        ).reset_index()
+
+        summary_df['Std'] = summary_df['Std'].fillna(0.0)
+        summary_df['HitRate30'] = (summary_df['HitRate30'] * 100).round(1)
+        summary_df = summary_df.sort_values('MAE')
+
+        top_methods = summary_df.head(6)['Method'].tolist()
+        line_methods = summary_df.head(4)['Method'].tolist()
+
+        palette = px.colors.qualitative.Safe
+
         fig = make_subplots(
-            rows=2, cols=2,
+            rows=2,
+            cols=2,
+            specs=[[{"type": "xy"}, {"type": "xy"}],
+                   [{"type": "table"}, {"type": "xy"}]],
             subplot_titles=[
-                '📊 各方法回测误差分布', '📈 回测误差时间序列',
-                '🎯 预测vs实际对比', '🏆 方法性能雷达图'
-            ],
-            specs=[
-                [{"type": "xy"}, {"type": "xy"}],
-                [{"type": "xy"}, {"type": "polar"}]
+                '📊 回测误差分布 (Top 6)',
+                '📈 误差走势 (Top 4)',
+                '🧾 方法表现摘要',
+                '🎯 预测 vs 实际 (Top 6)'
             ]
         )
-        
-        # 1. 误差分布箱线图
-        methods = bt_df['Method'].unique()[:10]  # 限制显示前10个方法
-        colors = px.colors.qualitative.Set3
-        
-        for i, method in enumerate(methods):
+
+        # 1. 箱线图
+        for i, method in enumerate(top_methods):
             method_data = bt_df[bt_df['Method'] == method]
             fig.add_trace(
                 go.Box(
                     y=method_data['Error_Days'],
                     name=method,
-                    marker_color=colors[i % len(colors)],
+                    marker_color=palette[i % len(palette)],
+                    boxmean=True,
+                    boxpoints='suspectedoutliers',
                     showlegend=False
                 ),
                 row=1, col=1
             )
-        
-        # 2. 时间序列误差
-        for i, method in enumerate(methods[:5]):  # 只显示前5个方法
+        fig.update_yaxes(title_text='误差 (天)', row=1, col=1)
+
+        # 2. 误差时间序列
+        for i, method in enumerate(line_methods):
             method_data = bt_df[bt_df['Method'] == method].sort_values('Actual_Date')
             fig.add_trace(
                 go.Scatter(
@@ -876,14 +938,53 @@ class DeepSeekPredictorModular:
                     y=method_data['Error_Days'],
                     mode='lines+markers',
                     name=method,
-                    line=dict(color=colors[i % len(colors)]),
-                    showlegend=True
+                    line=dict(color=palette[i % len(palette)], width=2),
+                    marker=dict(size=6),
+                    hovertemplate='<b>%{fullData.name}</b><br>实际: %{x|%Y-%m-%d}<br>误差: %{y} 天<extra></extra>'
                 ),
                 row=1, col=2
             )
-        
-        # 3. 预测vs实际散点图
-        for i, method in enumerate(methods[:5]):
+
+        fig.add_hline(y=0, line_dash='dot', line_color='#7f7f7f', row=1, col=2)
+        fig.add_hline(y=30, line_dash='dash', line_color='#bcbd22', row=1, col=2)
+        fig.add_hline(y=-30, line_dash='dash', line_color='#bcbd22', row=1, col=2)
+        fig.update_yaxes(title_text='误差 (天)', row=1, col=2)
+        fig.update_xaxes(title_text='实际发布日期', row=1, col=2)
+
+        # 3. 表格
+        table_summary = summary_df.copy()
+        table_summary['MAE'] = table_summary['MAE'].map(lambda x: f"{x:.2f}")
+        table_summary['MedianAE'] = table_summary['MedianAE'].map(lambda x: f"{x:.2f}")
+        table_summary['Std'] = table_summary['Std'].map(lambda x: f"{x:.2f}")
+        table_summary['HitRate30'] = table_summary['HitRate30'].map(lambda x: f"{x:.1f}%")
+
+        fig.add_trace(
+            go.Table(
+                header=dict(
+                    values=['方法', 'MAE', '中位误差', '标准差', '30天命中率', '样本数'],
+                    fill_color='#1f77b4',
+                    font=dict(color='white', size=12),
+                    align='left'
+                ),
+                cells=dict(
+                    values=[
+                        table_summary['Method'],
+                        table_summary['MAE'],
+                        table_summary['MedianAE'],
+                        table_summary['Std'],
+                        table_summary['HitRate30'],
+                        table_summary['Samples']
+                    ],
+                    fill_color=['#fdfefe'] * 6,
+                    align='left',
+                    font=dict(size=11)
+                )
+            ),
+            row=2, col=1
+        )
+
+        # 4. 预测 vs 实际
+        for i, method in enumerate(top_methods):
             method_data = bt_df[bt_df['Method'] == method]
             fig.add_trace(
                 go.Scatter(
@@ -891,13 +992,13 @@ class DeepSeekPredictorModular:
                     y=method_data['Predicted_Date'],
                     mode='markers',
                     name=method,
-                    marker=dict(color=colors[i % len(colors)], size=8),
-                    showlegend=False
+                    marker=dict(color=palette[i % len(palette)], size=8, opacity=0.8),
+                    showlegend=False,
+                    hovertemplate='<b>%{fullData.name}</b><br>实际: %{x|%Y-%m-%d}<br>预测: %{y|%Y-%m-%d}<extra></extra>'
                 ),
-                row=2, col=1
+                row=2, col=2
             )
-        
-        # 添加理想线 (y=x)
+
         min_date = bt_df['Actual_Date'].min()
         max_date = bt_df['Actual_Date'].max()
         fig.add_trace(
@@ -906,49 +1007,32 @@ class DeepSeekPredictorModular:
                 y=[min_date, max_date],
                 mode='lines',
                 name='理想预测',
-                line=dict(color='red', dash='dash'),
+                line=dict(color='#7f7f7f', dash='dash', width=2),
                 showlegend=False
             ),
-            row=2, col=1
+            row=2, col=2
         )
-        
-        # 4. 雷达图 - 方法性能
-        # 计算每个方法的综合性能指标
-        method_stats = bt_df.groupby('Method').agg({
-            'Absolute_Error': ['mean', 'std'],
-            'Error_Days': lambda x: (abs(x) <= 30).mean()  # 30天内准确率
-        }).reset_index()
-        
-        method_stats.columns = ['Method', 'MAE', 'Std', 'Accuracy']
-        method_stats = method_stats.head(6)  # 前6个方法
-        
-        # 标准化指标 (越小越好的转换为越大越好)
-        method_stats['MAE_Score'] = 1 / (1 + method_stats['MAE'] / 100)
-        method_stats['Stability_Score'] = 1 / (1 + method_stats['Std'] / 100)
-        
-        # 为每个方法创建雷达图
-        for i, row in method_stats.iterrows():
-            fig.add_trace(
-                go.Scatterpolar(
-                    r=[row['MAE_Score'], row['Stability_Score'], row['Accuracy']],
-                    theta=['准确性', '稳定性', '命中率'],
-                    fill='toself',
-                    name=row['Method'],
-                    line=dict(color=colors[i % len(colors)]),
-                    showlegend=False
-                ),
-                row=2, col=2
-            )
-        
+        fig.update_xaxes(title_text='实际发布日期', row=2, col=2)
+        fig.update_yaxes(title_text='预测发布日期', row=2, col=2)
+
         fig.update_layout(
             height=1000,
             title_text="🔄 DeepSeek 回测分析报告",
-            showlegend=True
+            showlegend=True,
+            template="plotly_white",
+            font=dict(size=12),
+            hovermode="closest",
+            margin=dict(l=40, r=40, t=60, b=40)
         )
-        
-        fig.write_html("deepseek_backtest_analysis.html")
+
+        fig.write_html(
+            "deepseek_backtest_analysis.html",
+            include_plotlyjs='cdn',
+            full_html=True,
+            config={'displayModeBar': True, 'displaylogo': False}
+        )
         print("✅ 回测可视化已保存到 deepseek_backtest_analysis.html")
-        
+
         return fig
     
     def run_complete_analysis(self):

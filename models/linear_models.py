@@ -20,6 +20,9 @@ class LinearPredictor(BasePredictor):
         super().__init__(f"Linear {model_type.title()}")
         self.model_type = model_type
         self.scaler = StandardScaler()
+        self.min_interval = None
+        self.max_interval = None
+        self.base_interval = None
         
         if model_type == 'linear':
             self.model = LinearRegression()
@@ -32,42 +35,69 @@ class LinearPredictor(BasePredictor):
     
     def _create_features(self, df: pd.DataFrame):
         """创建时间序列特征"""
+        intervals = df['interval_days'].dropna()
+
+        if intervals.empty:
+            raise ValueError("interval_days 为空，无法训练线性模型")
+
+        values = intervals.values.astype(float)
         X = []
         y = []
-        
-        for i in range(1, len(df)):
+
+        overall_mean = float(values.mean())
+
+        for idx, interval in enumerate(values):
+            if idx > 0:
+                prev_interval = values[idx - 1]
+                recent = values[max(0, idx - 3):idx]
+            else:
+                prev_interval = overall_mean
+                recent = values[:1]
+
+            rolling_mean = recent.mean() if len(recent) > 0 else overall_mean
+            rolling_std = recent.std(ddof=0) if len(recent) > 1 else 0.0
+            month = df['month'].iloc[idx]
+            month_sin = np.sin(2 * np.pi * month / 12)
+            month_cos = np.cos(2 * np.pi * month / 12)
+
             X.append([
-                i,  # 时间序列索引
-                df.iloc[i]['month'],
-                df.iloc[i]['quarter'], 
-                df.iloc[i]['year'],
-                df.iloc[i]['is_coder'],
-                df.iloc[i]['is_v2'],
-                df.iloc[i]['is_v3'],
-                df.iloc[i]['is_r1']
+                idx,  # 时间索引
+                prev_interval,
+                rolling_mean,
+                rolling_std,
+                month_sin,
+                month_cos
             ])
-            y.append(df.iloc[i]['days_since_start'])
-            
-        return np.array(X), np.array(y)
-    
+            y.append(interval)
+
+        return np.array(X, dtype=float), np.array(y, dtype=float)
+
     def fit(self, df: pd.DataFrame) -> None:
         """训练线性模型"""
         X, y = self._create_features(df)
-        
-        if self.model_type in ['ridge', 'lasso']:
-            X = self.scaler.fit_transform(X)
-        
-        self.model.fit(X, y)
-        
-        # 评估性能
-        if self.model_type in ['ridge', 'lasso']:
-            y_pred = self.model.predict(X)
+
+        values = df['interval_days'].dropna().values.astype(float)
+        if len(values) > 1:
+            self.min_interval = max(1.0, float(np.percentile(values, 5)))
+            self.max_interval = float(np.percentile(values, 95))
         else:
+            value = float(values[0])
+            self.min_interval = max(1.0, value * 0.8)
+            self.max_interval = value * 1.2
+
+        self.base_interval = float(values.mean())
+
+        if self.model_type in ['ridge', 'lasso']:
+            X_scaled = self.scaler.fit_transform(X)
+            self.model.fit(X_scaled, y)
+            y_pred = self.model.predict(X_scaled)
+        else:
+            self.model.fit(X, y)
             y_pred = self.model.predict(X)
-        
+
         self.evaluate(y, y_pred)
         self.is_fitted = True
-    
+
     def predict(self, df: pd.DataFrame, n_predictions: int = 5, 
                 today: datetime = None) -> List[datetime]:
         """生成预测"""
@@ -78,34 +108,37 @@ class LinearPredictor(BasePredictor):
             today = datetime.now()
         
         future_predictions = []
-        last_index = len(df)
-        
-        for i in range(1, n_predictions + 1):
-            # 基于历史模式预测特征
-            future_month = ((today.month + i * 2 - 1) % 12) + 1
-            future_quarter = ((future_month - 1) // 3) + 1
-            future_year = today.year + ((today.month + i * 2 - 1) // 12)
-            
-            X_future = np.array([[
-                last_index + i - 1,
-                future_month,
-                future_quarter,
-                future_year,
-                0,  # 假设不是Coder版本
-                0,  # 假设不是V2
-                1 if i <= 3 else 0,  # 前几个可能是V3
-                1 if i > 3 else 0   # 后几个可能是R1或新系列
-            ]])
-            
+        intervals = df['interval_days'].dropna()
+
+        if intervals.empty:
+            raise ValueError("interval_days 为空，无法进行预测")
+
+        history = intervals.values.astype(float).tolist()
+        last_date = df['date'].iloc[-1]
+
+        for step in range(n_predictions):
+            prev_interval = history[-1] if history else self.base_interval
+            recent = history[-3:] if history else [self.base_interval]
+            rolling_mean = np.mean(recent)
+            rolling_std = np.std(recent, ddof=0) if len(recent) > 1 else 0.0
+            month = last_date.month
+            month_sin = np.sin(2 * np.pi * month / 12)
+            month_cos = np.cos(2 * np.pi * month / 12)
+
+            X_future = np.array([[len(history), prev_interval, rolling_mean, rolling_std, month_sin, month_cos]], dtype=float)
+
             if self.model_type in ['ridge', 'lasso']:
                 X_future = self.scaler.transform(X_future)
-            
-            pred_days = self.model.predict(X_future)[0]
-            pred_date = df['date'].iloc[0] + timedelta(days=int(pred_days))
-            
-            if pred_date > today:
-                future_predictions.append(pred_date)
-        
+
+            pred_interval = float(self.model.predict(X_future)[0])
+            pred_interval = float(np.clip(pred_interval, self.min_interval, self.max_interval))
+
+            last_date = last_date + timedelta(days=int(round(pred_interval)))
+            history.append(pred_interval)
+
+            if last_date > today:
+                future_predictions.append(last_date)
+
         return future_predictions
 
 

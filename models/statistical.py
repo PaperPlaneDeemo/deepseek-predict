@@ -27,8 +27,13 @@ class TrendAnalysisPredictor(BasePredictor):
         y = df['days_since_start'].values
         
         # 线性回归拟合趋势
-        self.slope, self.intercept, self.r_value, p_value, std_err = stats.linregress(x, y)
-        
+        # 使用对近期数据权重更高的加权线性回归，贴合加速趋势
+        weights = np.linspace(0.5, 1.0, len(df))
+        coeffs = np.polyfit(x, y, 1, w=weights)
+        self.slope = float(coeffs[0])
+        self.intercept = float(coeffs[1])
+        self.r_value = None
+
         # 计算性能指标
         y_pred = self.slope * x + self.intercept
         self.evaluate(y, y_pred)
@@ -67,7 +72,9 @@ class SeasonalDecomposePredictor(BasePredictor):
         self.monthly_effects = {}
         self.trend_slope = 0
         self.base_level = 0
-    
+        self.interval_floor = None
+        self.interval_cap = None
+
     def fit(self, df: pd.DataFrame) -> None:
         """分析季节性模式"""
         # 计算月度效应
@@ -90,7 +97,26 @@ class SeasonalDecomposePredictor(BasePredictor):
         if len(intervals) > 1:
             self.trend_slope, intercept, _, _, _ = stats.linregress(x, intervals)
         
-        self.base_level = overall_mean
+        self.base_level = float(overall_mean)
+
+        values = intervals.values.astype(float)
+        if len(values) > 1:
+            self.interval_floor = max(1.0, float(np.percentile(values, 5)))
+            self.interval_cap = float(np.percentile(values, 95))
+        else:
+            value = float(values[0])
+            self.interval_floor = max(1.0, value * 0.8)
+            self.interval_cap = value * 1.2
+
+        # 使用估计的季节与趋势对历史数据回测
+        predicted_intervals = []
+        for idx, month in enumerate(df_with_intervals['month']):
+            seasonal_effect = self.monthly_effects.get(month, 0)
+            trend_effect = self.trend_slope * idx
+            interval = self.base_level + seasonal_effect + trend_effect
+            predicted_intervals.append(float(np.clip(interval, self.interval_floor, self.interval_cap)))
+
+        self.evaluate(values, np.array(predicted_intervals, dtype=float))
         self.is_fitted = True
     
     def predict(self, df: pd.DataFrame, n_predictions: int = 5, 
@@ -105,16 +131,19 @@ class SeasonalDecomposePredictor(BasePredictor):
         future_predictions = []
         last_date = df['date'].iloc[-1]
         
+        base_interval = float(np.clip(self.base_level, self.interval_floor, self.interval_cap))
+
         for i in range(n_predictions):
-            # 计算预期间隔
-            next_month = (last_date + timedelta(days=30)).month
+            # 估计下一个发布时间所处的月份
+            tentative_date = last_date + timedelta(days=int(round(base_interval)))
+            next_month = tentative_date.month
             seasonal_effect = self.monthly_effects.get(next_month, 0)
             trend_effect = self.trend_slope * i
             
             predicted_interval = self.base_level + seasonal_effect + trend_effect
-            predicted_interval = max(30, predicted_interval)  # 最小30天
-            
-            last_date = last_date + timedelta(days=int(predicted_interval))
+            predicted_interval = float(np.clip(predicted_interval, self.interval_floor, self.interval_cap))
+
+            last_date = last_date + timedelta(days=int(round(predicted_interval)))
             if last_date > today:
                 future_predictions.append(last_date)
         
@@ -128,11 +157,13 @@ class CyclicalAnalysisPredictor(BasePredictor):
         super().__init__("Cyclical Analysis")
         self.cycle_length = None
         self.cycle_pattern = None
-    
+        self.interval_floor = None
+        self.interval_cap = None
+
     def fit(self, df: pd.DataFrame) -> None:
         """检测周期性模式"""
         intervals = df['interval_days'].dropna().values
-        
+
         if len(intervals) < 4:
             # 数据太少，使用简单平均
             self.cycle_pattern = [intervals.mean()]
@@ -151,7 +182,21 @@ class CyclicalAnalysisPredictor(BasePredictor):
             
             self.cycle_length = best_cycle_length
             self.cycle_pattern = self._extract_cycle_pattern(intervals, best_cycle_length)
-        
+
+        values = np.array(self.cycle_pattern, dtype=float)
+        floor_candidates = np.concatenate([intervals, values]) if len(intervals) else values
+        if len(floor_candidates) > 1:
+            self.interval_floor = max(1.0, float(np.percentile(floor_candidates, 5)))
+            self.interval_cap = float(np.percentile(floor_candidates, 95))
+        else:
+            value = float(floor_candidates[0])
+            self.interval_floor = max(1.0, value * 0.8)
+            self.interval_cap = value * 1.2
+        preds = []
+        for idx in range(len(intervals)):
+            cycle_val = self.cycle_pattern[idx % len(self.cycle_pattern)]
+            preds.append(float(np.clip(cycle_val, self.interval_floor, self.interval_cap)))
+        self.evaluate(intervals.astype(float), np.array(preds, dtype=float))
         self.is_fitted = True
     
     def _evaluate_cycle(self, intervals, cycle_length):
@@ -202,10 +247,9 @@ class CyclicalAnalysisPredictor(BasePredictor):
         
         for i in range(n_predictions):
             pattern_index = i % len(self.cycle_pattern)
-            predicted_interval = self.cycle_pattern[pattern_index]
-            predicted_interval = max(30, predicted_interval)
-            
-            last_date = last_date + timedelta(days=int(predicted_interval))
+            predicted_interval = float(np.clip(self.cycle_pattern[pattern_index], self.interval_floor, self.interval_cap))
+
+            last_date = last_date + timedelta(days=int(round(predicted_interval)))
             if last_date > today:
                 future_predictions.append(last_date)
         
@@ -237,8 +281,11 @@ class StatisticalPredictor(BasePredictor):
         self.weights = []
         for predictor in self.predictors:
             if predictor.is_fitted and predictor.performance_metrics:
-                r2 = predictor.performance_metrics.get('R2', 0)
-                weight = max(0, r2)  # 使用R²作为权重
+                mae = predictor.performance_metrics.get('MAE')
+                if mae and mae > 0:
+                    weight = 1.0 / mae
+                else:
+                    weight = 0.1
             else:
                 weight = 0.1  # 默认权重
             self.weights.append(weight)
@@ -250,6 +297,31 @@ class StatisticalPredictor(BasePredictor):
         else:
             self.weights = [1.0 / len(self.predictors)] * len(self.predictors)
         
+        aggregated_mae = 0.0
+        aggregated_rmse = 0.0
+        weight_sum_mae = 0.0
+        weight_sum_rmse = 0.0
+
+        for weight, predictor in zip(self.weights, self.predictors):
+            metrics = predictor.performance_metrics
+            if not metrics:
+                continue
+            mae = metrics.get('MAE')
+            rmse = metrics.get('RMSE')
+            if mae is not None:
+                aggregated_mae += weight * mae
+                weight_sum_mae += weight
+            if rmse is not None:
+                aggregated_rmse += weight * rmse
+                weight_sum_rmse += weight
+
+        perf = {}
+        if weight_sum_mae > 0:
+            perf['MAE'] = aggregated_mae
+        if weight_sum_rmse > 0:
+            perf['RMSE'] = aggregated_rmse
+        self.performance_metrics = perf
+
         self.is_fitted = True
     
     def predict(self, df: pd.DataFrame, n_predictions: int = 5, 
