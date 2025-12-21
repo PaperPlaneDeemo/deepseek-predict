@@ -155,3 +155,5 @@ Thumbs.db
 *.csv.backup
 temp/
 tmp/ 
+.claude
+.uv-cache/

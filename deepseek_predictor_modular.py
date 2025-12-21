@@ -46,6 +46,8 @@ class DeepSeekPredictorModular:
             'DeepSeek-R1-0528',
             'DeepSeek-V3.1',
             'DeepSeek-V3.1-Terminus',
+            'DeepSeek-V3.2-Exp',
+            'DeepSeek-Math-V2',
             'DeepSeek-V3.2'
             ],
             'date': [
@@ -66,12 +68,14 @@ class DeepSeekPredictorModular:
             '2025-05-28',
             '2025-08-19',
             '2025-09-22',
-            '2025-09-29'
+            '2025-09-29',
+            '2025-11-27',
+            '2025-12-01'
             ]
         }
         
-        # 固定预测基准日期为 2025-10-01（按需调整）
-        self.today = datetime(2025, 10, 1)
+        # 固定预测基准日期为 2025-12-06（按需调整）
+        self.today = datetime(2025, 12, 21)
         self.df = None
         self.predictors = {}
         self.predictions = {}
