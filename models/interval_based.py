@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from typing import List
 
 from .base import BasePredictor
+from .utils import compute_interval_bounds
 
 
 class IntervalPredictor(BasePredictor):
@@ -19,14 +20,13 @@ class IntervalPredictor(BasePredictor):
         初始化间隔预测器
         
         Args:
-            strategy: 预测策略，可选 'mean', 'median', 'recent', 'exponential'
+            strategy: 预测策略，可选 'mean', 'median', 'recent'
         """
         self.strategy = strategy
         strategy_names = {
             'mean': 'Mean Interval',
             'median': 'Median Interval', 
             'recent': 'Recent 3 Mean',
-            'exponential': 'Exponential Smoothing'
         }
         super().__init__(strategy_names.get(strategy, f"Interval {strategy}"))
         self.interval_value = None
@@ -41,13 +41,11 @@ class IntervalPredictor(BasePredictor):
             raise ValueError("interval_days 为空，无法训练间隔模型")
 
         # 根据历史数据设定合理的上下限，避免预测出现极端值
-        if len(intervals) > 1:
-            self.interval_floor = max(1.0, float(intervals.quantile(0.1)))
-            self.interval_cap = float(intervals.quantile(0.9))
-        else:
-            value = float(intervals.iloc[0])
-            self.interval_floor = max(1.0, value * 0.8)
-            self.interval_cap = value * 1.2
+        self.interval_floor, self.interval_cap = compute_interval_bounds(
+            intervals.values.astype(float),
+            0.1,
+            0.9,
+        )
         
         if self.strategy == 'mean':
             self.interval_value = float(intervals.mean())
@@ -55,8 +53,6 @@ class IntervalPredictor(BasePredictor):
             self.interval_value = float(intervals.median())
         elif self.strategy == 'recent':
             self.interval_value = float(intervals.tail(3).mean())
-        elif self.strategy == 'exponential':
-            self.interval_value = float(self._exponential_smoothing(intervals))
         else:
             raise ValueError(f"不支持的策略: {self.strategy}")
 
@@ -68,13 +64,6 @@ class IntervalPredictor(BasePredictor):
         )
         self.evaluate(true_intervals, preds)
         self.is_fitted = True
-    
-    def _exponential_smoothing(self, intervals, alpha=0.3):
-        """指数平滑"""
-        smoothed = intervals.iloc[0]
-        for value in intervals.iloc[1:]:
-            smoothed = alpha * value + (1 - alpha) * smoothed
-        return smoothed
     
     def predict(self, df: pd.DataFrame, n_predictions: int = 5, 
                 today: datetime = None) -> List[datetime]:
@@ -118,13 +107,11 @@ class AdaptiveIntervalPredictor(BasePredictor):
 
         self.history_length = len(intervals)
 
-        if len(intervals) > 1:
-            self.interval_floor = max(1.0, float(intervals.quantile(0.1)))
-            self.interval_cap = float(intervals.quantile(0.9))
-        else:
-            value = float(intervals.iloc[0])
-            self.interval_floor = max(1.0, value * 0.8)
-            self.interval_cap = value * 1.2
+        self.interval_floor, self.interval_cap = compute_interval_bounds(
+            intervals.values.astype(float),
+            0.1,
+            0.9,
+        )
 
         # 基础间隔
         self.base_interval = float(intervals.mean())
@@ -184,13 +171,11 @@ class WeightedIntervalPredictor(BasePredictor):
         if intervals.empty:
             raise ValueError("interval_days 为空，无法训练加权间隔模型")
 
-        if len(intervals) > 1:
-            self.interval_floor = max(1.0, float(intervals.quantile(0.1)))
-            self.interval_cap = float(intervals.quantile(0.9))
-        else:
-            value = float(intervals.iloc[0])
-            self.interval_floor = max(1.0, value * 0.8)
-            self.interval_cap = value * 1.2
+        self.interval_floor, self.interval_cap = compute_interval_bounds(
+            intervals.values.astype(float),
+            0.1,
+            0.9,
+        )
 
         # 计算加权平均间隔
         weights = np.array([self.decay_rate ** i for i in range(len(intervals))])
@@ -239,10 +224,6 @@ def create_median_interval_predictor():
 def create_recent_interval_predictor():
     """创建近期间隔预测器"""
     return IntervalPredictor('recent')
-
-def create_exponential_interval_predictor():
-    """创建指数平滑间隔预测器"""
-    return IntervalPredictor('exponential')
 
 def create_adaptive_interval_predictor():
     """创建自适应间隔预测器"""

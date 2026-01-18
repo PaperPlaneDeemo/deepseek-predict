@@ -10,6 +10,7 @@ from typing import List
 from scipy import stats
 
 from .base import BasePredictor
+from .utils import compute_interval_bounds
 
 
 class TrendAnalysisPredictor(BasePredictor):
@@ -19,10 +20,12 @@ class TrendAnalysisPredictor(BasePredictor):
         super().__init__("Trend Analysis")
         self.slope = None
         self.intercept = None
-        self.r_value = None
     
     def fit(self, df: pd.DataFrame) -> None:
         """拟合趋势线"""
+        if len(df) < 2:
+            raise ValueError("需要至少2个数据点进行趋势分析")
+
         x = np.arange(len(df))
         y = df['days_since_start'].values
         
@@ -32,8 +35,6 @@ class TrendAnalysisPredictor(BasePredictor):
         coeffs = np.polyfit(x, y, 1, w=weights)
         self.slope = float(coeffs[0])
         self.intercept = float(coeffs[1])
-        self.r_value = None
-
         # 计算性能指标
         y_pred = self.slope * x + self.intercept
         self.evaluate(y, y_pred)
@@ -79,6 +80,9 @@ class SeasonalDecomposePredictor(BasePredictor):
         """分析季节性模式"""
         # 计算月度效应
         intervals = df['interval_days'].dropna()
+        if intervals.empty:
+            raise ValueError("interval_days 为空，无法训练季节性分解模型")
+
         df_with_intervals = df.iloc[1:].copy()
         df_with_intervals['interval'] = intervals.values
         
@@ -100,13 +104,7 @@ class SeasonalDecomposePredictor(BasePredictor):
         self.base_level = float(overall_mean)
 
         values = intervals.values.astype(float)
-        if len(values) > 1:
-            self.interval_floor = max(1.0, float(np.percentile(values, 5)))
-            self.interval_cap = float(np.percentile(values, 95))
-        else:
-            value = float(values[0])
-            self.interval_floor = max(1.0, value * 0.8)
-            self.interval_cap = value * 1.2
+        self.interval_floor, self.interval_cap = compute_interval_bounds(values, 0.05, 0.95)
 
         # 使用估计的季节与趋势对历史数据回测
         predicted_intervals = []
@@ -163,6 +161,8 @@ class CyclicalAnalysisPredictor(BasePredictor):
     def fit(self, df: pd.DataFrame) -> None:
         """检测周期性模式"""
         intervals = df['interval_days'].dropna().values
+        if len(intervals) == 0:
+            raise ValueError("interval_days 为空，无法训练周期性模型")
 
         if len(intervals) < 4:
             # 数据太少，使用简单平均
@@ -184,14 +184,8 @@ class CyclicalAnalysisPredictor(BasePredictor):
             self.cycle_pattern = self._extract_cycle_pattern(intervals, best_cycle_length)
 
         values = np.array(self.cycle_pattern, dtype=float)
-        floor_candidates = np.concatenate([intervals, values]) if len(intervals) else values
-        if len(floor_candidates) > 1:
-            self.interval_floor = max(1.0, float(np.percentile(floor_candidates, 5)))
-            self.interval_cap = float(np.percentile(floor_candidates, 95))
-        else:
-            value = float(floor_candidates[0])
-            self.interval_floor = max(1.0, value * 0.8)
-            self.interval_cap = value * 1.2
+        floor_candidates = np.concatenate([intervals, values])
+        self.interval_floor, self.interval_cap = compute_interval_bounds(floor_candidates, 0.05, 0.95)
         preds = []
         for idx in range(len(intervals)):
             cycle_val = self.cycle_pattern[idx % len(self.cycle_pattern)]

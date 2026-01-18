@@ -11,6 +11,7 @@ from sklearn.linear_model import LinearRegression, Ridge, Lasso
 from sklearn.preprocessing import StandardScaler
 
 from .base import BasePredictor
+from .utils import compute_interval_bounds
 
 
 class LinearPredictor(BasePredictor):
@@ -77,13 +78,7 @@ class LinearPredictor(BasePredictor):
         X, y = self._create_features(df)
 
         values = df['interval_days'].dropna().values.astype(float)
-        if len(values) > 1:
-            self.min_interval = max(1.0, float(np.percentile(values, 5)))
-            self.max_interval = float(np.percentile(values, 95))
-        else:
-            value = float(values[0])
-            self.min_interval = max(1.0, value * 0.8)
-            self.max_interval = value * 1.2
+        self.min_interval, self.max_interval = compute_interval_bounds(values, 0.05, 0.95)
 
         self.base_interval = float(values.mean())
 

@@ -153,7 +153,8 @@ Thumbs.db
 # Project specific
 *.html.backup
 *.csv.backup
+deepseek_*analysis.html
 temp/
-tmp/ 
+tmp/
 .claude
 .uv-cache/

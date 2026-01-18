@@ -9,17 +9,53 @@ import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
-from typing import Dict, List
+from collections.abc import Callable
+from typing import Dict
 
 # 导入所有预测器
+from models.base import BasePredictor
 from models.linear_models import create_linear_predictor, create_ridge_predictor, create_lasso_predictor
-from models.time_series import ARIMAPredictor, ExponentialSmoothingPredictor, SeasonalPredictor
+from models.time_series import ExponentialSmoothingPredictor, SeasonalPredictor
 from models.interval_based import (
     create_mean_interval_predictor, create_median_interval_predictor,
     create_recent_interval_predictor, create_adaptive_interval_predictor,
     create_weighted_interval_predictor
 )
-from models.statistical import TrendAnalysisPredictor, SeasonalDecomposePredictor, StatisticalPredictor
+from models.statistical import TrendAnalysisPredictor, StatisticalPredictor
+
+
+PredictorFactory = Callable[[], BasePredictor]
+
+PREDICTOR_GROUPS: Dict[str, Dict[str, PredictorFactory]] = {
+    'Linear Models': {
+        'Linear Regression': create_linear_predictor,
+        'Ridge Regression': create_ridge_predictor,
+        'Lasso Regression': create_lasso_predictor,
+    },
+    'Time Series': {
+        'Exponential Smoothing': ExponentialSmoothingPredictor,
+        'Seasonal Pattern': SeasonalPredictor,
+    },
+    'Interval Based': {
+        'Mean Interval': create_mean_interval_predictor,
+        'Median Interval': create_median_interval_predictor,
+        'Recent 3 Mean': create_recent_interval_predictor,
+        'Adaptive Interval': create_adaptive_interval_predictor,
+        'Weighted Interval': create_weighted_interval_predictor,
+    },
+    'Statistical': {
+        'Trend Analysis': TrendAnalysisPredictor,
+        'Statistical Ensemble': StatisticalPredictor,
+    },
+}
+
+PREDICTOR_FACTORIES: Dict[str, PredictorFactory] = {
+    name: factory
+    for group in PREDICTOR_GROUPS.values()
+    for name, factory in group.items()
+}
+
+PREDICTOR_NAMES = [name for name in PREDICTOR_FACTORIES]
 
 
 class DeepSeekPredictorModular:
@@ -74,75 +110,52 @@ class DeepSeekPredictorModular:
             ]
         }
         
-        # 固定预测基准日期为 2025-12-06（按需调整）
-        self.today = datetime(2025, 12, 21)
+        # 自动获取系统当前日期
+        self.today = datetime.now()
         self.df = None
         self.predictors = {}
         self.predictions = {}
-        self.performance_summary = {}
+        self.performance_summary = pd.DataFrame()
         self.backtest_results = {}
         
+    @staticmethod
+    def _add_features(df: pd.DataFrame) -> pd.DataFrame:
+        """为 DataFrame 添加派生特征列（会原地修改并返回 df）"""
+        df['days_since_start'] = (df['date'] - df['date'].iloc[0]).dt.days
+        df['month'] = df['date'].dt.month
+        df['interval_days'] = df['days_since_start'].diff()
+        return df
+
+    def _iter_predictors(self):
+        for group_name, group_predictors in self.predictors.items():
+            for name, predictor in group_predictors.items():
+                yield group_name, name, predictor
+
     def _prepare_data(self):
         """数据预处理"""
         self.df = pd.DataFrame(self.data)
         self.df['date'] = pd.to_datetime(self.df['date'])
         self.df = self.df.sort_values('date').reset_index(drop=True)
-        
-        # 创建特征
-        self.df['days_since_start'] = (self.df['date'] - self.df['date'].iloc[0]).dt.days
-        self.df['month'] = self.df['date'].dt.month
-        self.df['quarter'] = self.df['date'].dt.quarter
-        self.df['year'] = self.df['date'].dt.year
-        self.df['day_of_year'] = self.df['date'].dt.dayofyear
-        self.df['interval_days'] = self.df['days_since_start'].diff()
-        
-        # 版本特征
-        self.df['is_coder'] = self.df['version'].str.contains('Coder').astype(int)
-        self.df['is_v2'] = self.df['version'].str.contains('V2').astype(int)
-        self.df['is_v3'] = self.df['version'].str.contains('V3').astype(int)
-        self.df['is_r1'] = self.df['version'].str.contains('R1').astype(int)
+        self._add_features(self.df)
         
         print("✅ 数据预处理完成")
         print(f"📊 数据形状: {self.df.shape}")
         
     def _initialize_predictors(self):
-        """初始化所有预测器（排除深度学习）"""
-        print("🔧 初始化预测器（排除深度学习算法）...")
-        
-        # 线性模型组
-        self.predictors['Linear Models'] = {
-            'Linear Regression': create_linear_predictor(),
-            'Ridge Regression': create_ridge_predictor(), 
-            'Lasso Regression': create_lasso_predictor()
-        }
-        
-        # 时间序列组
-        self.predictors['Time Series'] = {
-            # 'ARIMA': ARIMAPredictor(),
-            'Exponential Smoothing': ExponentialSmoothingPredictor(),
-            'Seasonal Pattern': SeasonalPredictor()
-        }
-        
-        # 间隔分析组
-        self.predictors['Interval Based'] = {
-            'Mean Interval': create_mean_interval_predictor(),
-            'Median Interval': create_median_interval_predictor(),
-            'Recent 3 Mean': create_recent_interval_predictor(),
-            'Adaptive Interval': create_adaptive_interval_predictor(),
-            'Weighted Interval': create_weighted_interval_predictor()
-        }
-        
-        # 统计学组
-        self.predictors['Statistical'] = {
-            'Trend Analysis': TrendAnalysisPredictor(),
-            # 'Seasonal Decompose': SeasonalDecomposePredictor(),
-            'Statistical Ensemble': StatisticalPredictor()
+        """初始化所有预测器"""
+        print("🔧 初始化预测器...")
+
+        self.predictors = {
+            group_name: {
+                name: factory()
+                for name, factory in factories.items()
+            }
+            for group_name, factories in PREDICTOR_GROUPS.items()
         }
         
         # 计算总数
         total_predictors = sum(len(group) for group in self.predictors.values())
         print(f"🎯 已初始化 {total_predictors} 个预测器，分为 {len(self.predictors)} 个类别")
-        print("🚫 已排除深度学习算法：MLP和LSTM")
         
     def fit_all_models(self):
         """训练所有模型"""
@@ -172,23 +185,23 @@ class DeepSeekPredictorModular:
     def generate_all_predictions(self, n_predictions=1):
         """生成所有预测"""
         print(f"\n🔮 生成预测 (未来 {n_predictions} 个模型)...")
-        
+
+        self.predictions = {}
         prediction_count = 0
         
-        for group_name, group_predictors in self.predictors.items():
-            for name, predictor in group_predictors.items():
-                if predictor.is_fitted:
-                    try:
-                        preds = predictor.predict(self.df, n_predictions, self.today)
-                        # 过滤有效预测
-                        valid_preds = [p for p in preds if p > self.today]
-                        if valid_preds and n_predictions == 1:
-                            valid_preds = valid_preds[:1]
-                        if valid_preds:
-                            self.predictions[name] = valid_preds
-                            prediction_count += 1
-                    except Exception as e:
-                        print(f"  ❌ {name} 预测失败: {e}")
+        for _, name, predictor in self._iter_predictors():
+            if predictor.is_fitted:
+                try:
+                    preds = predictor.predict(self.df, n_predictions, self.today)
+                    # 过滤有效预测
+                    valid_preds = [p for p in preds if p > self.today]
+                    if valid_preds and n_predictions == 1:
+                        valid_preds = valid_preds[:1]
+                    if valid_preds:
+                        self.predictions[name] = valid_preds
+                        prediction_count += 1
+                except Exception as e:
+                    print(f"  ❌ {name} 预测失败: {e}")
         
         print(f"✅ 生成了 {prediction_count} 个有效预测结果")
         return self.predictions
@@ -199,13 +212,12 @@ class DeepSeekPredictorModular:
         
         performance_data = []
         
-        for group_name, group_predictors in self.predictors.items():
-            for name, predictor in group_predictors.items():
-                if predictor.is_fitted and predictor.performance_metrics:
-                    metrics = predictor.performance_metrics.copy()
-                    metrics['Name'] = name
-                    metrics['Group'] = group_name
-                    performance_data.append(metrics)
+        for group_name, name, predictor in self._iter_predictors():
+            if predictor.is_fitted and predictor.performance_metrics:
+                metrics = predictor.performance_metrics.copy()
+                metrics['Name'] = name
+                metrics['Group'] = group_name
+                performance_data.append(metrics)
         
         if performance_data:
             perf_df = pd.DataFrame(performance_data)
@@ -222,6 +234,7 @@ class DeepSeekPredictorModular:
             self.performance_summary = perf_df
         else:
             print("⚠️  没有可用的性能数据")
+            self.performance_summary = pd.DataFrame()
     
     def create_comprehensive_analysis(self):
         """创建综合分析"""
@@ -310,7 +323,7 @@ class DeepSeekPredictorModular:
             return None
 
         pred_df = pd.DataFrame(records)
-        perf_df = getattr(self, 'performance_summary', None)
+        perf_df = self.performance_summary
         if perf_df is not None and not perf_df.empty:
             metrics_df = perf_df[['Name', 'Group', 'MAE', 'RMSE']].rename(columns={'Name': 'Model'})
             pred_df = pred_df.merge(metrics_df, how='left', on='Model')
@@ -319,7 +332,7 @@ class DeepSeekPredictorModular:
             pred_df['MAE'] = np.nan
             pred_df['RMSE'] = np.nan
 
-        pred_df['Group'] = pred_df.get('Group', pd.Series(dtype=str)).fillna(pred_df['Model'].map(group_lookup))
+        pred_df['Group'] = pred_df['Group'].fillna(pred_df['Model'].map(group_lookup))
         pred_df['Group'] = pred_df['Group'].fillna('N/A')
         pred_df['MAE'] = pred_df['MAE'].astype(float)
         pred_df['RMSE'] = pred_df['RMSE'].astype(float)
@@ -541,16 +554,10 @@ class DeepSeekPredictorModular:
         print(f"\n🔄 开始回测分析 (从第{start_from}个数据点开始)")
         print("="*60)
         
+        predictor_names = list(PREDICTOR_NAMES)
+
         backtest_results = {}
-        
-        # 获取所有预测器名称
-        all_predictors = {}
-        for group_name, group_predictors in self.predictors.items():
-            for name, predictor in group_predictors.items():
-                all_predictors[name] = predictor
-        
-        # 初始化结果存储
-        for name in all_predictors.keys():
+        for name in predictor_names:
             backtest_results[name] = {
                 'predictions': [],
                 'actual_dates': [],
@@ -569,63 +576,17 @@ class DeepSeekPredictorModular:
                 print("-" * 40)
             
             # 使用前i个数据点训练和预测
-            train_df = self.df.iloc[:i].copy()
-            
-            # 重新计算训练数据的特征
-            train_df['days_since_start'] = (train_df['date'] - train_df['date'].iloc[0]).dt.days
-            train_df['month'] = train_df['date'].dt.month
-            train_df['quarter'] = train_df['date'].dt.quarter
-            train_df['year'] = train_df['date'].dt.year
-            train_df['day_of_year'] = train_df['date'].dt.dayofyear
-            train_df['interval_days'] = train_df['days_since_start'].diff()
-            
-            # 版本特征
-            train_df['is_coder'] = train_df['version'].str.contains('Coder').astype(int)
-            train_df['is_v2'] = train_df['version'].str.contains('V2').astype(int)
-            train_df['is_v3'] = train_df['version'].str.contains('V3').astype(int)
-            train_df['is_r1'] = train_df['version'].str.contains('R1').astype(int)
+            train_df = self.df[['version', 'date']].iloc[:i].copy()
+            self._add_features(train_df)
             
             # 对每个预测器进行训练和预测
-            for name, predictor in all_predictors.items():
+            for name in predictor_names:
                 try:
                     # 重新创建预测器实例以避免状态污染
-                    if name == 'Linear Regression':
-                        predictor = create_linear_predictor()
-                    elif name == 'Ridge Regression':
-                        predictor = create_ridge_predictor()
-                    elif name == 'Lasso Regression':
-                        predictor = create_lasso_predictor()
-                    elif name == 'ARIMA':
-                        predictor = ARIMAPredictor()
-                    elif name == 'Exponential Smoothing':
-                        predictor = ExponentialSmoothingPredictor()
-                    elif name == 'Seasonal Pattern':
-                        predictor = SeasonalPredictor()
-                    # 注释掉ensemble models - 小数据集不适合
-                    # elif name == 'Random Forest':
-                    #     predictor = RandomForestPredictor()
-                    # elif name == 'Gradient Boosting':
-                    #     predictor = GradientBoostingPredictor()
-                    # elif name == 'XGBoost':
-                    #     predictor = XGBoostPredictor()
-                    # elif name == 'SVR':
-                    #     predictor = SVRPredictor()
-                    elif name == 'Mean Interval':
-                        predictor = create_mean_interval_predictor()
-                    elif name == 'Median Interval':
-                        predictor = create_median_interval_predictor()
-                    elif name == 'Recent 3 Mean':
-                        predictor = create_recent_interval_predictor()
-                    elif name == 'Adaptive Interval':
-                        predictor = create_adaptive_interval_predictor()
-                    elif name == 'Weighted Interval':
-                        predictor = create_weighted_interval_predictor()
-                    elif name == 'Trend Analysis':
-                        predictor = TrendAnalysisPredictor()
-                    elif name == 'Seasonal Decompose':
-                        predictor = SeasonalDecomposePredictor()
-                    elif name == 'Statistical Ensemble':
-                        predictor = StatisticalPredictor()
+                    factory = PREDICTOR_FACTORIES.get(name)
+                    if factory is None:
+                        raise KeyError(f"未知预测器: {name}")
+                    predictor = factory()
                     
                     # 训练模型
                     predictor.fit(train_df)
@@ -684,50 +645,20 @@ class DeepSeekPredictorModular:
                     # 用完整数据集重新训练并预测下一次发布时间
                     next_release_prediction = "训练失败"
                     try:
-                        # 创建对应的预测器
-                        if name == 'Linear Regression':
-                            predictor = create_linear_predictor()
-                        elif name == 'Ridge Regression':
-                            predictor = create_ridge_predictor()
-                        elif name == 'Lasso Regression':
-                            predictor = create_lasso_predictor()
-                        elif name == 'ARIMA':
-                            predictor = ARIMAPredictor()
-                        elif name == 'Exponential Smoothing':
-                            predictor = ExponentialSmoothingPredictor()
-                        elif name == 'Seasonal Pattern':
-                            predictor = SeasonalPredictor()
-                        elif name == 'Mean Interval':
-                            predictor = create_mean_interval_predictor()
-                        elif name == 'Median Interval':
-                            predictor = create_median_interval_predictor()
-                        elif name == 'Recent 3 Mean':
-                            predictor = create_recent_interval_predictor()
-                        elif name == 'Adaptive Interval':
-                            predictor = create_adaptive_interval_predictor()
-                        elif name == 'Weighted Interval':
-                            predictor = create_weighted_interval_predictor()
-                        elif name == 'Trend Analysis':
-                            predictor = TrendAnalysisPredictor()
-                        elif name == 'Seasonal Decompose':
-                            predictor = SeasonalDecomposePredictor()
-                        elif name == 'Statistical Ensemble':
-                            predictor = StatisticalPredictor()
-                        else:
-                            predictor = None
-                        
-                        if predictor:
-                            # 用完整数据集训练
-                            predictor.fit(self.df)
-                            if predictor.is_fitted:
-                                # 预测下一次发布时间
-                                next_predictions = predictor.predict(self.df, n_predictions=1, today=self.today)
-                                if next_predictions:
-                                    next_release_prediction = next_predictions[0].strftime('%Y-%m-%d')
-                                else:
-                                    next_release_prediction = "无预测"
+                        factory = PREDICTOR_FACTORIES.get(name)
+                        if factory is None:
+                            raise KeyError(f"未知预测器: {name}")
+                        predictor = factory()
+
+                        # 用完整数据集训练
+                        predictor.fit(self.df)
+                        if predictor.is_fitted:
+                            # 预测下一次发布时间
+                            next_predictions = predictor.predict(self.df, n_predictions=1, today=self.today)
+                            if next_predictions:
+                                next_release_prediction = next_predictions[0].strftime('%Y-%m-%d')
                             else:
-                                next_release_prediction = "训练失败"
+                                next_release_prediction = "无预测"
                     except Exception as e:
                         next_release_prediction = f"错误: {str(e)[:10]}"
                     
@@ -773,32 +704,31 @@ class DeepSeekPredictorModular:
         # 收集R²和回测数据
         comparison_data = []
         
-        for group_name, group_predictors in self.predictors.items():
-            for name, predictor in group_predictors.items():
-                # 获取R²分数
-                r2_score = None
-                if hasattr(predictor, 'performance_metrics') and predictor.performance_metrics:
-                    r2_score = predictor.performance_metrics.get('R2', None)
-                
-                # 获取回测结果
-                if name in self.backtest_results:
-                    results = self.backtest_results[name]
-                    valid_errors = [e for e in results['errors_days'] if e != float('inf')]
-                    
-                    if valid_errors and r2_score is not None:
-                        mae = np.mean(np.abs(valid_errors))
-                        rmse = np.sqrt(np.mean(np.square(valid_errors)))
-                        success_rate = results['success_count'] / results['total_attempts']
-                        
-                        comparison_data.append({
-                            'Method': name,
-                            'Group': group_name,
-                            'R2_Score': r2_score,
-                            'MAE': mae,
-                            'RMSE': rmse,
-                            'Success_Rate': success_rate,
-                            'Valid_Predictions': len(valid_errors)
-                        })
+        for group_name, name, predictor in self._iter_predictors():
+            # 获取R²分数
+            r2_score = None
+            if hasattr(predictor, 'performance_metrics') and predictor.performance_metrics:
+                r2_score = predictor.performance_metrics.get('R2', None)
+
+            # 获取回测结果
+            if name in self.backtest_results:
+                results = self.backtest_results[name]
+                valid_errors = [e for e in results['errors_days'] if e != float('inf')]
+
+                if valid_errors and r2_score is not None:
+                    mae = np.mean(np.abs(valid_errors))
+                    rmse = np.sqrt(np.mean(np.square(valid_errors)))
+                    success_rate = results['success_count'] / results['total_attempts']
+
+                    comparison_data.append({
+                        'Method': name,
+                        'Group': group_name,
+                        'R2_Score': r2_score,
+                        'MAE': mae,
+                        'RMSE': rmse,
+                        'Success_Rate': success_rate,
+                        'Valid_Predictions': len(valid_errors)
+                    })
         
         if not comparison_data:
             print("❌ 没有足够的数据进行比较")
