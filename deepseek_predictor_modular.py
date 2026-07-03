@@ -84,7 +84,8 @@ class DeepSeekPredictorModular:
             'DeepSeek-V3.1-Terminus',
             'DeepSeek-V3.2-Exp',
             'DeepSeek-Math-V2',
-            'DeepSeek-V3.2'
+            'DeepSeek-V3.2',
+            'DeepSeek-V4-Preview'
             ],
             'date': [
             '2023-11-02',
@@ -106,7 +107,8 @@ class DeepSeekPredictorModular:
             '2025-09-22',
             '2025-09-29',
             '2025-11-27',
-            '2025-12-01'
+            '2025-12-01',
+            '2026-04-24'
             ]
         }
         
@@ -116,6 +118,7 @@ class DeepSeekPredictorModular:
         self.predictors = {}
         self.predictions = {}
         self.performance_summary = pd.DataFrame()
+        self.backtest_summary = pd.DataFrame()
         self.backtest_results = {}
         
     @staticmethod
@@ -193,13 +196,11 @@ class DeepSeekPredictorModular:
             if predictor.is_fitted:
                 try:
                     preds = predictor.predict(self.df, n_predictions, self.today)
-                    # 过滤有效预测
-                    valid_preds = [p for p in preds if p > self.today]
-                    if valid_preds and n_predictions == 1:
-                        valid_preds = valid_preds[:1]
-                    if valid_preds:
-                        self.predictions[name] = valid_preds
+                    if preds:
+                        self.predictions[name] = preds
                         prediction_count += 1
+                    else:
+                        print(f"  ⚠️  {name} 未能生成 {self.today.strftime('%Y-%m-%d')} 之后的预测")
                 except Exception as e:
                     print(f"  ❌ {name} 预测失败: {e}")
         
@@ -221,16 +222,18 @@ class DeepSeekPredictorModular:
         
         if performance_data:
             perf_df = pd.DataFrame(performance_data)
-            
-            # 按R²排序
-            if 'R2' in perf_df.columns:
-                perf_df = perf_df.sort_values('R2', ascending=False)
-                
-                print("\n🏆 Top 5 模型性能 (R² Score):")
+
+            # 各预测器指标已统一为间隔天数口径，按样本内 MAE 升序排序；
+            # 样本内指标仅供参考，模型选择以回测 (out-of-sample) 结果为准
+            if 'MAE' in perf_df.columns:
+                perf_df = perf_df.sort_values('MAE', na_position='last')
+
+                print("\n🏆 Top 5 模型性能 (样本内 MAE, 天):")
                 print("-" * 50)
                 for i, row in perf_df.head().iterrows():
-                    print(f"{row['Name']}: {row['R2']:.4f}")
-            
+                    r2_text = f" (R²: {row['R2']:.3f})" if 'R2' in perf_df.columns and pd.notna(row.get('R2')) else ""
+                    print(f"{row['Name']}: {row['MAE']:.2f}{r2_text}")
+
             self.performance_summary = perf_df
         else:
             print("⚠️  没有可用的性能数据")
@@ -251,42 +254,48 @@ class DeepSeekPredictorModular:
                 })
         
         if not first_predictions:
-            print("❌ 没有有效的预测结果")
-            return
-        
+            print("⚠️  所有预测器均未产出 today 之后的预测，请检查数据或预测器状态")
+            return None
+
         pred_df = pd.DataFrame(first_predictions)
         pred_df = pred_df.sort_values('Days_from_now')
-        
+
         # 分析结果
         earliest = pred_df.iloc[0]
         latest = pred_df.iloc[-1]
-        
+
         # 3个月内的预测
         three_months_later = self.today + timedelta(days=90)
         near_term = pred_df[pred_df['Date'] <= three_months_later]
-        
+
+        # 一致性基于全部预测的离散度：与中位数预测日期相差 30 天以内的比例
+        median_date = pred_df['Date'].median()
+        within_30d = (pred_df['Date'] - median_date).abs() <= pd.Timedelta(days=30)
+        consistency_ratio = within_30d.mean()
+
         print("\n🎯 预测分析结果:")
         print("=" * 60)
         print(f"📅 预测基准日期: {self.today.strftime('%Y年%m月%d日')}")
         print(f"📊 有效预测方法: {len(self.predictions)} 种")
         print(f"⚡ 最早预测: {earliest['Date'].strftime('%Y年%m月%d日')} ({earliest['Method']})")
         print(f"⏰ 距离最早预测: {earliest['Days_from_now']} 天")
+        print(f"📆 中位数预测: {median_date.strftime('%Y年%m月%d日')}")
         print(f"🔄 预测时间跨度: {(latest['Date'] - earliest['Date']).days} 天")
         print(f"📍 3个月内预测数: {len(near_term)} 个方法")
-        
+
         # 一致性评级
-        consistency_ratio = len(near_term) / len(pred_df)
         if consistency_ratio >= 0.6:
             consistency = "⭐⭐⭐ 高一致性"
         elif consistency_ratio >= 0.4:
             consistency = "⭐⭐ 中等一致性"
         else:
             consistency = "⭐ 低一致性"
-        
-        print(f"🎖️  预测一致性: {consistency} ({consistency_ratio:.1%})")
-        
+
+        print(f"🎖️  预测一致性: {consistency} (中位数±30天内: {consistency_ratio:.1%})")
+
         return {
             'earliest_prediction': earliest,
+            'median_prediction': median_date,
             'prediction_count': len(self.predictions),
             'near_term_count': len(near_term),
             'consistency': consistency
@@ -323,17 +332,27 @@ class DeepSeekPredictorModular:
             return None
 
         pred_df = pd.DataFrame(records)
-        perf_df = self.performance_summary
-        if perf_df is not None and not perf_df.empty:
-            metrics_df = perf_df[['Name', 'Group', 'MAE', 'RMSE']].rename(columns={'Name': 'Model'})
+        pred_df['Group'] = pred_df['Model'].map(group_lookup).fillna('N/A')
+
+        # 优先用回测 (out-of-sample) MAE 排名；样本内训练 MAE 只作兜底并明确标注，
+        # 避免用记忆训练集的能力冒充泛化能力
+        if self.backtest_summary is not None and not self.backtest_summary.empty:
+            metrics_df = self.backtest_summary[['Method', 'MAE (days)', 'RMSE (days)']].rename(
+                columns={'Method': 'Model', 'MAE (days)': 'MAE', 'RMSE (days)': 'RMSE'})
+            mae_source = '回测 MAE (out-of-sample)'
+        elif self.performance_summary is not None and not self.performance_summary.empty:
+            metrics_df = self.performance_summary[['Name', 'MAE', 'RMSE']].rename(columns={'Name': 'Model'})
+            mae_source = '训练 MAE (in-sample)'
+        else:
+            metrics_df = None
+            mae_source = 'MAE'
+
+        if metrics_df is not None:
             pred_df = pred_df.merge(metrics_df, how='left', on='Model')
         else:
-            pred_df['Group'] = pred_df['Model'].map(group_lookup)
             pred_df['MAE'] = np.nan
             pred_df['RMSE'] = np.nan
 
-        pred_df['Group'] = pred_df['Group'].fillna(pred_df['Model'].map(group_lookup))
-        pred_df['Group'] = pred_df['Group'].fillna('N/A')
         pred_df['MAE'] = pred_df['MAE'].astype(float)
         pred_df['RMSE'] = pred_df['RMSE'].astype(float)
         pred_df['Days Ahead'] = pred_df['Days Ahead'].astype(int)
@@ -351,7 +370,7 @@ class DeepSeekPredictorModular:
                    [{"type": "table"}, {"type": "xy"}]],
             subplot_titles=[
                 '📈 历史发布时间线与最佳预测',
-                '🏆 MAE 表现最优模型',
+                f'🏆 {mae_source} 表现最优模型',
                 '🔮 下一次发布日期预测摘要',
                 '📊 发布间隔分布 & 预测间隔对比'
             ]
@@ -687,6 +706,7 @@ class DeepSeekPredictorModular:
                       f"{row['Success_Rate']:<10.1%} {row['Valid_Predictions']:<10d} {row['Next_Release']:<15}")
             
             self.backtest_results = backtest_results
+            self.backtest_summary = bt_df
             return bt_df
         else:
             print("❌ 没有有效的回测结果")
@@ -976,34 +996,34 @@ class DeepSeekPredictorModular:
         
         # 1. 数据准备
         self._prepare_data()
-        
+
         # 2. 初始化预测器
         self._initialize_predictors()
-        
+
         # 3. 训练模型
         self.fit_all_models()
-        
+
         # 4. 生成预测
         self.generate_all_predictions(n_predictions=1)
-        
-        # 5. 性能分析
+
+        # 5. 性能分析（样本内，仅供参考）
         self.analyze_performance()
-        
-        # 6. 综合分析
-        analysis_summary = self.create_comprehensive_analysis()
-        
-        # 7. 打印详细结果
-        self.print_detailed_results()
-        
-        # 8. 创建可视化
-        self.create_advanced_visualizations()
-        
-        # 9. 运行回测
+
+        # 6. 运行回测（先于可视化，使"最佳模型"排名基于 out-of-sample 误差）
         self.run_backtest()
-        
+
+        # 7. 综合分析
+        analysis_summary = self.create_comprehensive_analysis()
+
+        # 8. 打印详细结果
+        self.print_detailed_results()
+
+        # 9. 创建可视化
+        self.create_advanced_visualizations()
+
         # 10. 比较R²和回测结果的关系
         self.compare_r2_vs_backtest()
-        
+
         # 11. 创建回测可视化
         self.create_backtest_visualization()
         

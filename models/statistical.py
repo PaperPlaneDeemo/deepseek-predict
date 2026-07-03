@@ -28,40 +28,44 @@ class TrendAnalysisPredictor(BasePredictor):
 
         x = np.arange(len(df))
         y = df['days_since_start'].values
-        
+
         # 线性回归拟合趋势
         # 使用对近期数据权重更高的加权线性回归，贴合加速趋势
         weights = np.linspace(0.5, 1.0, len(df))
         coeffs = np.polyfit(x, y, 1, w=weights)
         self.slope = float(coeffs[0])
         self.intercept = float(coeffs[1])
-        # 计算性能指标
+        # 在间隔天数（一阶差分）上评估，与其它预测器的指标口径保持一致，
+        # 否则在累积量 days_since_start 上 R² 天然接近 1，跨模型不可比
         y_pred = self.slope * x + self.intercept
-        self.evaluate(y, y_pred)
-        
+        self.evaluate(np.diff(y), np.diff(y_pred))
+
         self.is_fitted = True
-    
-    def predict(self, df: pd.DataFrame, n_predictions: int = 5, 
+
+    def predict(self, df: pd.DataFrame, n_predictions: int = 5,
                 today: datetime = None) -> List[datetime]:
         """基于趋势线预测"""
         if not self.is_fitted:
             raise ValueError("模型未训练，请先调用fit()方法")
-        
+
         if today is None:
             today = datetime.now()
-        
+
         future_predictions = []
         start_date = df['date'].iloc[0]
-        last_index = len(df)
-        
-        for i in range(1, n_predictions + 1):
-            future_index = last_index + i  # 修复：应该是last_index + i，不是last_index + i - 1
+
+        # 训练用索引 0..len(df)-1，因此下一次发布对应索引 len(df)；
+        # 早于 today 的日期只跳过、不占用 n_predictions 预算
+        future_index = len(df)
+        for _ in range(self.MAX_ROLL_ITERATIONS):
+            if len(future_predictions) >= n_predictions:
+                break
             pred_days = self.slope * future_index + self.intercept
             pred_date = start_date + timedelta(days=int(pred_days))
-            
             if pred_date > today:
                 future_predictions.append(pred_date)
-        
+            future_index += 1
+
         return future_predictions
 
 
@@ -75,6 +79,7 @@ class SeasonalDecomposePredictor(BasePredictor):
         self.base_level = 0
         self.interval_floor = None
         self.interval_cap = None
+        self.history_length = 0
 
     def fit(self, df: pd.DataFrame) -> None:
         """分析季节性模式"""
@@ -102,6 +107,7 @@ class SeasonalDecomposePredictor(BasePredictor):
             self.trend_slope, intercept, _, _, _ = stats.linregress(x, intervals)
         
         self.base_level = float(overall_mean)
+        self.history_length = len(intervals)
 
         values = intervals.values.astype(float)
         self.interval_floor, self.interval_cap = compute_interval_bounds(values, 0.05, 0.95)
@@ -117,35 +123,27 @@ class SeasonalDecomposePredictor(BasePredictor):
         self.evaluate(values, np.array(predicted_intervals, dtype=float))
         self.is_fitted = True
     
-    def predict(self, df: pd.DataFrame, n_predictions: int = 5, 
+    def predict(self, df: pd.DataFrame, n_predictions: int = 5,
                 today: datetime = None) -> List[datetime]:
         """基于季节性分解预测"""
         if not self.is_fitted:
             raise ValueError("模型未训练，请先调用fit()方法")
-        
+
         if today is None:
             today = datetime.now()
-        
-        future_predictions = []
-        last_date = df['date'].iloc[-1]
-        
+
         base_interval = float(np.clip(self.base_level, self.interval_floor, self.interval_cap))
 
-        for i in range(n_predictions):
+        def next_interval(step, current_date):
             # 估计下一个发布时间所处的月份
-            tentative_date = last_date + timedelta(days=int(round(base_interval)))
-            next_month = tentative_date.month
-            seasonal_effect = self.monthly_effects.get(next_month, 0)
-            trend_effect = self.trend_slope * i
-            
+            tentative_date = current_date + timedelta(days=int(round(base_interval)))
+            seasonal_effect = self.monthly_effects.get(tentative_date.month, 0)
+            # 趋势从历史末尾续接，而非从 index 0 重启
+            trend_effect = self.trend_slope * (self.history_length + step)
             predicted_interval = self.base_level + seasonal_effect + trend_effect
-            predicted_interval = float(np.clip(predicted_interval, self.interval_floor, self.interval_cap))
+            return float(np.clip(predicted_interval, self.interval_floor, self.interval_cap))
 
-            last_date = last_date + timedelta(days=int(round(predicted_interval)))
-            if last_date > today:
-                future_predictions.append(last_date)
-        
-        return future_predictions
+        return self.roll_future_dates(df['date'].iloc[-1], today, next_interval, n_predictions)
 
 
 class CyclicalAnalysisPredictor(BasePredictor):
@@ -206,12 +204,13 @@ class CyclicalAnalysisPredictor(BasePredictor):
         if len(cycles) < 2:
             return 0
         
-        # 计算周期间的相关性
+        # 计算周期间的相关性；只奖励正相关（真正重复），
+        # 取绝对值会把反相位的段也误判为强周期
         correlations = []
         for i in range(len(cycles)-1):
             corr = np.corrcoef(cycles[i], cycles[i+1])[0, 1]
             if not np.isnan(corr):
-                correlations.append(abs(corr))
+                correlations.append(max(corr, 0.0))
         
         return np.mean(correlations) if correlations else 0
     
@@ -227,27 +226,20 @@ class CyclicalAnalysisPredictor(BasePredictor):
         else:
             return [intervals.mean()]
     
-    def predict(self, df: pd.DataFrame, n_predictions: int = 5, 
+    def predict(self, df: pd.DataFrame, n_predictions: int = 5,
                 today: datetime = None) -> List[datetime]:
         """基于周期性模式预测"""
         if not self.is_fitted:
             raise ValueError("模型未训练，请先调用fit()方法")
-        
+
         if today is None:
             today = datetime.now()
-        
-        future_predictions = []
-        last_date = df['date'].iloc[-1]
-        
-        for i in range(n_predictions):
-            pattern_index = i % len(self.cycle_pattern)
-            predicted_interval = float(np.clip(self.cycle_pattern[pattern_index], self.interval_floor, self.interval_cap))
 
-            last_date = last_date + timedelta(days=int(round(predicted_interval)))
-            if last_date > today:
-                future_predictions.append(last_date)
-        
-        return future_predictions
+        def next_interval(step, current_date):
+            pattern_index = step % len(self.cycle_pattern)
+            return float(np.clip(self.cycle_pattern[pattern_index], self.interval_floor, self.interval_cap))
+
+        return self.roll_future_dates(df['date'].iloc[-1], today, next_interval, n_predictions)
 
 
 class StatisticalPredictor(BasePredictor):
@@ -311,9 +303,10 @@ class StatisticalPredictor(BasePredictor):
 
         perf = {}
         if weight_sum_mae > 0:
-            perf['MAE'] = aggregated_mae
+            # 除以累计权重：部分子预测器缺失指标时重新归一化，避免加权和被低估
+            perf['MAE'] = aggregated_mae / weight_sum_mae
         if weight_sum_rmse > 0:
-            perf['RMSE'] = aggregated_rmse
+            perf['RMSE'] = aggregated_rmse / weight_sum_rmse
         self.performance_metrics = perf
 
         self.is_fitted = True
@@ -340,17 +333,15 @@ class StatisticalPredictor(BasePredictor):
         if not all_predictions:
             # 如果所有预测器都失败，使用简单方法
             intervals = df['interval_days'].dropna()
-            avg_interval = intervals.mean()
-            
-            future_predictions = []
-            last_date = df['date'].iloc[-1]
-            for i in range(n_predictions):
-                last_date = last_date + timedelta(days=int(avg_interval))
-                if last_date > today:
-                    future_predictions.append(last_date)
-            return future_predictions
-        
-        # 加权平均预测结果
+            avg_interval = float(intervals.mean())
+            return self.roll_future_dates(
+                df['date'].iloc[-1], today,
+                lambda step, current_date: avg_interval,
+                n_predictions,
+            )
+
+        # 加权平均预测结果（各子预测器均返回恰好 n_predictions 个未来日期，
+        # 因此 pred_idx 即"第 k 个未来发布"，跨预测器按序号对齐）
         ensemble_predictions = []
         for pred_idx in range(n_predictions):
             weighted_days = []

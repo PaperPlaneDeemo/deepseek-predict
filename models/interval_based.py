@@ -5,7 +5,7 @@
 
 import numpy as np
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import List
 
 from .base import BasePredictor
@@ -65,26 +65,21 @@ class IntervalPredictor(BasePredictor):
         self.evaluate(true_intervals, preds)
         self.is_fitted = True
     
-    def predict(self, df: pd.DataFrame, n_predictions: int = 5, 
+    def predict(self, df: pd.DataFrame, n_predictions: int = 5,
                 today: datetime = None) -> List[datetime]:
         """生成基于间隔的预测"""
         if not self.is_fitted:
             raise ValueError("模型未训练，请先调用fit()方法")
-        
+
         if today is None:
             today = datetime.now()
-        
-        future_predictions = []
-        last_date = df['date'].iloc[-1]
-        
-        for i in range(n_predictions):
-            interval = float(self.interval_value)
-            interval = float(np.clip(interval, self.interval_floor, self.interval_cap))
-            last_date = last_date + timedelta(days=int(round(interval)))
-            if last_date > today:
-                future_predictions.append(last_date)
 
-        return future_predictions
+        interval = float(np.clip(self.interval_value, self.interval_floor, self.interval_cap))
+        return self.roll_future_dates(
+            df['date'].iloc[-1], today,
+            lambda step, current_date: interval,
+            n_predictions,
+        )
 
 
 class AdaptiveIntervalPredictor(BasePredictor):
@@ -131,27 +126,21 @@ class AdaptiveIntervalPredictor(BasePredictor):
         self.evaluate(true_intervals, preds)
         self.is_fitted = True
     
-    def predict(self, df: pd.DataFrame, n_predictions: int = 5, 
+    def predict(self, df: pd.DataFrame, n_predictions: int = 5,
                 today: datetime = None) -> List[datetime]:
         """生成自适应预测"""
         if not self.is_fitted:
             raise ValueError("模型未训练，请先调用fit()方法")
-        
+
         if today is None:
             today = datetime.now()
-        
-        future_predictions = []
-        last_date = df['date'].iloc[-1]
-        
-        for i in range(n_predictions):
-            # 基于线性趋势调整间隔，并限制在历史合理范围内
-            adjusted_interval = self.base_interval + self.trend_slope * (self.history_length + i)
-            interval = float(np.clip(adjusted_interval, self.interval_floor, self.interval_cap))
-            last_date = last_date + timedelta(days=int(round(interval)))
-            if last_date > today:
-                future_predictions.append(last_date)
 
-        return future_predictions
+        # 基于线性趋势调整间隔，并限制在历史合理范围内
+        def next_interval(step, current_date):
+            adjusted = self.base_interval + self.trend_slope * (self.history_length + step)
+            return float(np.clip(adjusted, self.interval_floor, self.interval_cap))
+
+        return self.roll_future_dates(df['date'].iloc[-1], today, next_interval, n_predictions)
 
 
 class WeightedIntervalPredictor(BasePredictor):
@@ -191,25 +180,21 @@ class WeightedIntervalPredictor(BasePredictor):
         self.evaluate(true_intervals, preds)
         self.is_fitted = True
     
-    def predict(self, df: pd.DataFrame, n_predictions: int = 5, 
+    def predict(self, df: pd.DataFrame, n_predictions: int = 5,
                 today: datetime = None) -> List[datetime]:
         """生成加权预测"""
         if not self.is_fitted:
             raise ValueError("模型未训练，请先调用fit()方法")
-        
+
         if today is None:
             today = datetime.now()
-        
-        future_predictions = []
-        last_date = df['date'].iloc[-1]
-        
-        for i in range(n_predictions):
-            interval = float(np.clip(self.weighted_interval, self.interval_floor, self.interval_cap))
-            last_date = last_date + timedelta(days=int(round(interval)))
-            if last_date > today:
-                future_predictions.append(last_date)
-        
-        return future_predictions
+
+        interval = float(np.clip(self.weighted_interval, self.interval_floor, self.interval_cap))
+        return self.roll_future_dates(
+            df['date'].iloc[-1], today,
+            lambda step, current_date: interval,
+            n_predictions,
+        )
 
 
 # 便捷的工厂函数

@@ -4,19 +4,44 @@
 """
 
 from abc import ABC, abstractmethod
-from datetime import datetime
-from typing import List, Dict, Any
+from datetime import datetime, timedelta
+from typing import Callable, List, Dict, Any
 import pandas as pd
 
 
 class BasePredictor(ABC):
     """预测器基类"""
-    
+
+    # 防止间隔退化时滚动循环失控
+    MAX_ROLL_ITERATIONS = 1000
+
     def __init__(self, name: str):
         self.name = name
         self.model = None
         self.performance_metrics = {}
         self.is_fitted = False
+
+    @staticmethod
+    def roll_future_dates(
+        last_date: datetime,
+        today: datetime,
+        next_interval: Callable[[int, datetime], float],
+        n_predictions: int,
+    ) -> List[datetime]:
+        """从最后一次发布日期向前滚动，收集 today 之后的 n_predictions 个日期。
+
+        追赶 today 的步数不占用 n_predictions 预算；next_interval(step, current_date)
+        返回第 step 步使用的间隔天数（可依赖当前滚动到的日期，如季节性查表）。
+        """
+        future_dates = []
+        for step in range(BasePredictor.MAX_ROLL_ITERATIONS):
+            if len(future_dates) >= n_predictions:
+                break
+            interval = max(1, int(round(float(next_interval(step, last_date)))))
+            last_date = last_date + timedelta(days=interval)
+            if last_date > today:
+                future_dates.append(last_date)
+        return future_dates
     
     @abstractmethod
     def fit(self, df: pd.DataFrame) -> None:
@@ -42,7 +67,12 @@ class BasePredictor(ABC):
             }
         except Exception as e:
             print(f"性能评估失败 {self.name}: {e}")
-            self.performance_metrics = {'MAE': 0, 'RMSE': 0, 'R2': 0}
+            # 用 NaN 表示评估失败；置 0 会让失败模型冒充"零误差"排到最前
+            self.performance_metrics = {
+                'MAE': float('nan'),
+                'RMSE': float('nan'),
+                'R2': float('nan'),
+            }
         
         return self.performance_metrics
     

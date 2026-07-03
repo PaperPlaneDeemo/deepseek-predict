@@ -44,25 +44,21 @@ class ExponentialSmoothingPredictor(BasePredictor):
         self.evaluate(true_intervals, smoothed_array)
         self.is_fitted = True
     
-    def predict(self, df: pd.DataFrame, n_predictions: int = 5, 
+    def predict(self, df: pd.DataFrame, n_predictions: int = 5,
                 today: datetime = None) -> List[datetime]:
         """生成指数平滑预测"""
         if not self.is_fitted:
             raise ValueError("模型未训练，请先调用fit()方法")
-        
+
         if today is None:
             today = datetime.now()
-        
-        future_predictions = []
-        last_date = df['date'].iloc[-1]
-        
-        for i in range(n_predictions):
-            interval = float(np.clip(self.smoothed_interval, self.interval_floor, self.interval_cap))
-            last_date = last_date + timedelta(days=int(round(interval)))
-            if last_date > today:
-                future_predictions.append(last_date)
 
-        return future_predictions
+        interval = float(np.clip(self.smoothed_interval, self.interval_floor, self.interval_cap))
+        return self.roll_future_dates(
+            df['date'].iloc[-1], today,
+            lambda step, current_date: interval,
+            n_predictions,
+        )
 
 
 class SeasonalPredictor(BasePredictor):
@@ -102,25 +98,20 @@ class SeasonalPredictor(BasePredictor):
         self.evaluate(true_intervals, predicted_array)
         self.is_fitted = True
     
-    def predict(self, df: pd.DataFrame, n_predictions: int = 5, 
+    def predict(self, df: pd.DataFrame, n_predictions: int = 5,
                 today: datetime = None) -> List[datetime]:
         """基于季节性模式预测"""
         if not self.is_fitted:
             raise ValueError("模型未训练，请先调用fit()方法")
-        
+
         if today is None:
             today = datetime.now()
-        
-        future_predictions = []
-        last_date = df['date'].iloc[-1]
-        
-        for i in range(n_predictions):
-            next_month = (last_date + timedelta(days=30)).month
-            interval = self.monthly_patterns.get(next_month, self.default_interval)
-            interval = float(np.clip(interval, self.interval_floor, self.interval_cap))
 
-            last_date = last_date + timedelta(days=int(round(interval)))
-            if last_date > today:
-                future_predictions.append(last_date)
+        def next_interval(step, current_date):
+            # 用默认间隔投影出下一次发布的落地月份，再查该月的季节性间隔，
+            # 保证查表月份与实际推进的间隔口径一致
+            tentative_date = current_date + timedelta(days=int(round(self.default_interval)))
+            interval = self.monthly_patterns.get(tentative_date.month, self.default_interval)
+            return float(np.clip(interval, self.interval_floor, self.interval_cap))
 
-        return future_predictions
+        return self.roll_future_dates(df['date'].iloc[-1], today, next_interval, n_predictions)
