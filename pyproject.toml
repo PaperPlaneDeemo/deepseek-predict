@@ -1,0 +1,14 @@
+[project]
+name = "deepseek-predict"
+version = "2.0.0"
+description = "Reproducible release-event forecasts with an offline HTML report"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24.0",
+    "pandas>=2.0.0",
+    "scikit-learn>=1.3.0",
+    "scipy>=1.11.0",
+]
+
+[tool.uv]
+package = false

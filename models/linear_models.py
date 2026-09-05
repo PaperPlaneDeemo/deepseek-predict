@@ -1,13 +1,11 @@
-"""
-线性模型预测器
-包括线性回归、Ridge回归、Lasso回归等
-"""
+"""Autoregressive interval models with features available at forecast time."""
+
+from datetime import datetime
+from typing import List
 
 import numpy as np
 import pandas as pd
-from datetime import datetime
-from typing import List
-from sklearn.linear_model import LinearRegression, Ridge, Lasso
+from sklearn.linear_model import Lasso, LinearRegression, Ridge
 from sklearn.preprocessing import StandardScaler
 
 from .base import BasePredictor
@@ -15,133 +13,86 @@ from .utils import compute_interval_bounds
 
 
 class LinearPredictor(BasePredictor):
-    """线性回归预测器"""
-    
+    """Predict an interval using prior intervals and its known starting month.
+
+    The first interval has no observed lag and is excluded from regression.
+    With only one observed interval, forecast that interval as a cold start.
+    """
+
     def __init__(self, model_type='linear'):
-        super().__init__(f"Linear {model_type.title()}")
+        if model_type not in ('linear', 'ridge', 'lasso'):
+            raise ValueError(f"Unsupported linear model: {model_type}")
+        super().__init__(f'Linear {model_type.title()}')
         self.model_type = model_type
         self.scaler = StandardScaler()
-        self.min_interval = None
-        self.max_interval = None
-        self.base_interval = None
-        
-        if model_type == 'linear':
-            self.model = LinearRegression()
-        elif model_type == 'ridge':
-            self.model = Ridge(alpha=1.0)
-        elif model_type == 'lasso':
-            self.model = Lasso(alpha=1.0)
-        else:
-            raise ValueError(f"不支持的模型类型: {model_type}")
-    
+
+    @staticmethod
+    def _feature_row(history, month):
+        recent = np.asarray(history[-3:], dtype=float)
+        return [history[-1], float(recent.mean()), float(recent.std()),
+                np.sin(2 * np.pi * month / 12), np.cos(2 * np.pi * month / 12)]
+
     def _create_features(self, df: pd.DataFrame):
-        """创建时间序列特征"""
-        intervals = df['interval_days'].dropna()
+        """Feature row i uses only releases strictly before its target event.
 
-        if intervals.empty:
-            raise ValueError("interval_days 为空，无法训练线性模型")
-
-        values = intervals.values.astype(float)
-        X = []
-        y = []
-
-        overall_mean = float(values.mean())
-
-        for idx, interval in enumerate(values):
-            if idx > 0:
-                prev_interval = values[idx - 1]
-                recent = values[max(0, idx - 3):idx]
-                rolling_mean = recent.mean()
-                rolling_std = recent.std(ddof=0) if len(recent) > 1 else 0.0
-            else:
-                # 冷启动样本没有历史，特征全部回退到全局统计量；
-                # 不能让 recent 含当前值，否则 rolling_mean 恰等于目标值（泄漏）
-                prev_interval = overall_mean
-                rolling_mean = overall_mean
-                rolling_std = 0.0
-
-            month = df['month'].iloc[idx]
-            month_sin = np.sin(2 * np.pi * month / 12)
-            month_cos = np.cos(2 * np.pi * month / 12)
-
-            X.append([
-                prev_interval,
-                rolling_mean,
-                rolling_std,
-                month_sin,
-                month_cos
-            ])
-            y.append(interval)
-
-        return np.array(X, dtype=float), np.array(y, dtype=float)
+        Appending future observations cannot change existing feature rows.
+        Starting months come from date, never the unknown target release month.
+        """
+        df = self._validate_frame(df)
+        values = df['interval_days'].iloc[1:].to_numpy()
+        features = [self._feature_row(values[:index], df['date'].iloc[index].month)
+                    for index in range(1, len(values))]
+        return np.asarray(features, dtype=float).reshape(-1, 5), values[1:].copy()
 
     def fit(self, df: pd.DataFrame) -> None:
-        """训练线性模型"""
-        X, y = self._create_features(df)
-
-        values = df['interval_days'].dropna().values.astype(float)
+        df = self._fit_data(df)
+        values = df['interval_days'].iloc[1:].to_numpy()
         self.min_interval, self.max_interval = compute_interval_bounds(values, 0.05, 0.95)
-
         self.base_interval = float(values.mean())
-
-        if self.model_type in ['ridge', 'lasso']:
-            X_scaled = self.scaler.fit_transform(X)
-            self.model.fit(X_scaled, y)
-            y_pred = self.model.predict(X_scaled)
+        self.scaler = StandardScaler()
+        self.model = {'linear': LinearRegression, 'ridge': Ridge, 'lasso': Lasso}[self.model_type]()
+        features, targets = self._create_features(df)
+        self._constant_fallback = len(targets) < 2 or np.ptp(targets) == 0
+        if self._constant_fallback:
+            self.base_interval = float(targets.mean()) if len(targets) else float(values[-1])
+            observed = targets if len(targets) else values
+            self.evaluate(observed, np.full_like(observed, self.base_interval))
         else:
-            self.model.fit(X, y)
-            y_pred = self.model.predict(X)
-
-        self.evaluate(y, y_pred)
+            if self.model_type in ('ridge', 'lasso'):
+                features = self.scaler.fit_transform(features)
+            self.model.fit(features, targets)
+            predictions = np.clip(self.model.predict(features), self.min_interval, self.max_interval)
+            self.evaluate(targets, predictions)
         self.is_fitted = True
 
     def predict(self, df: pd.DataFrame, n_predictions: int = 5,
                 today: datetime = None) -> List[datetime]:
-        """生成预测"""
-        if not self.is_fitted:
-            raise ValueError("模型未训练，请先调用fit()方法")
-
-        if today is None:
-            today = datetime.now()
-
-        intervals = df['interval_days'].dropna()
-
-        if intervals.empty:
-            raise ValueError("interval_days 为空，无法进行预测")
-
-        history = intervals.values.astype(float).tolist()
+        df = self._predict_data(df, n_predictions, today)
+        history = df['interval_days'].iloc[1:].tolist()
 
         def next_interval(step, current_date):
-            prev_interval = history[-1] if history else self.base_interval
-            recent = history[-3:] if history else [self.base_interval]
-            rolling_mean = np.mean(recent)
-            rolling_std = np.std(recent, ddof=0) if len(recent) > 1 else 0.0
-            month = current_date.month
-            month_sin = np.sin(2 * np.pi * month / 12)
-            month_cos = np.cos(2 * np.pi * month / 12)
-
-            X_future = np.array([[prev_interval, rolling_mean, rolling_std, month_sin, month_cos]], dtype=float)
-
-            if self.model_type in ['ridge', 'lasso']:
-                X_future = self.scaler.transform(X_future)
-
-            pred_interval = float(self.model.predict(X_future)[0])
-            pred_interval = float(np.clip(pred_interval, self.min_interval, self.max_interval))
-            history.append(pred_interval)
-            return pred_interval
+            if self._constant_fallback:
+                interval = self.base_interval
+            else:
+                features = np.asarray([self._feature_row(history, current_date.month)])
+                if self.model_type in ('ridge', 'lasso'):
+                    features = self.scaler.transform(features)
+                interval = float(self.model.predict(features)[0])
+            interval = float(np.clip(interval, self.min_interval, self.max_interval))
+            # Recursion must use the actual day-rounded interval being emitted.
+            history.append(max(1, round(interval)))
+            return interval
 
         return self.roll_future_dates(df['date'].iloc[-1], today, next_interval, n_predictions)
 
 
-# 便捷的工厂函数
 def create_linear_predictor():
-    """创建线性回归预测器"""
     return LinearPredictor('linear')
 
+
 def create_ridge_predictor():
-    """创建Ridge回归预测器"""
     return LinearPredictor('ridge')
 
+
 def create_lasso_predictor():
-    """创建Lasso回归预测器"""
-    return LinearPredictor('lasso') 
+    return LinearPredictor('lasso')

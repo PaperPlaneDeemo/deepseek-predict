@@ -1,0 +1,174 @@
+{
+  "schema_version": 1,
+  "notes": "Migrated without changing the 24 model names or dates from the existing repository. These records have not been independently verified; null source_url means no source was provided.",
+  "releases": [
+    {
+      "id": "deepseek-coder",
+      "name": "DeepSeek Coder",
+      "date": "2023-11-02",
+      "source_url": null,
+      "notes": ""
+    },
+    {
+      "id": "deepseek-llm",
+      "name": "DeepSeek-LLM",
+      "date": "2023-11-29",
+      "source_url": null,
+      "notes": ""
+    },
+    {
+      "id": "deepseek-moe",
+      "name": "DeepSeek-MoE",
+      "date": "2024-01-11",
+      "source_url": null,
+      "notes": ""
+    },
+    {
+      "id": "deepseek-math",
+      "name": "DeepSeek-Math",
+      "date": "2024-02-06",
+      "source_url": null,
+      "notes": ""
+    },
+    {
+      "id": "deepseek-v2-may",
+      "name": "DeepSeek-V2 (May)",
+      "date": "2024-05-04",
+      "source_url": null,
+      "notes": ""
+    },
+    {
+      "id": "deepseek-coder-v2-jun",
+      "name": "DeepSeek-Coder V2 (Jun)",
+      "date": "2024-06-14",
+      "source_url": null,
+      "notes": ""
+    },
+    {
+      "id": "deepseek-v2-jun",
+      "name": "DeepSeek-V2 (Jun)",
+      "date": "2024-06-28",
+      "source_url": null,
+      "notes": ""
+    },
+    {
+      "id": "deepseek-coder-v2-jul",
+      "name": "DeepSeek-Coder V2 (Jul)",
+      "date": "2024-07-24",
+      "source_url": null,
+      "notes": ""
+    },
+    {
+      "id": "deepseek-v2-5-sep",
+      "name": "DeepSeek-V2.5 (Sep)",
+      "date": "2024-09-05",
+      "source_url": null,
+      "notes": ""
+    },
+    {
+      "id": "deepseek-r1-lite",
+      "name": "DeepSeek-R1-Lite",
+      "date": "2024-11-20",
+      "source_url": null,
+      "notes": ""
+    },
+    {
+      "id": "deepseek-v2-5-dec",
+      "name": "DeepSeek-V2.5 (Dec)",
+      "date": "2024-12-10",
+      "source_url": null,
+      "notes": ""
+    },
+    {
+      "id": "deepseek-v3",
+      "name": "DeepSeek-V3",
+      "date": "2024-12-25",
+      "source_url": null,
+      "notes": ""
+    },
+    {
+      "id": "deepseek-r1",
+      "name": "DeepSeek-R1",
+      "date": "2025-01-20",
+      "source_url": null,
+      "notes": ""
+    },
+    {
+      "id": "deepseek-v3-0324",
+      "name": "DeepSeek-V3-0324",
+      "date": "2025-03-24",
+      "source_url": null,
+      "notes": ""
+    },
+    {
+      "id": "deepseek-r1-0528",
+      "name": "DeepSeek-R1-0528",
+      "date": "2025-05-28",
+      "source_url": null,
+      "notes": ""
+    },
+    {
+      "id": "deepseek-v3-1",
+      "name": "DeepSeek-V3.1",
+      "date": "2025-08-19",
+      "source_url": null,
+      "notes": ""
+    },
+    {
+      "id": "deepseek-v3-1-terminus",
+      "name": "DeepSeek-V3.1-Terminus",
+      "date": "2025-09-22",
+      "source_url": null,
+      "notes": ""
+    },
+    {
+      "id": "deepseek-v3-2-exp",
+      "name": "DeepSeek-V3.2-Exp",
+      "date": "2025-09-29",
+      "source_url": null,
+      "notes": ""
+    },
+    {
+      "id": "deepseek-math-v2",
+      "name": "DeepSeek-Math-V2",
+      "date": "2025-11-27",
+      "source_url": null,
+      "notes": ""
+    },
+    {
+      "id": "deepseek-v3-2",
+      "name": "DeepSeek-V3.2",
+      "date": "2025-12-01",
+      "source_url": null,
+      "notes": ""
+    },
+    {
+      "id": "deepseek-v4-preview",
+      "name": "DeepSeek-V4-Preview",
+      "date": "2026-04-24",
+      "source_url": null,
+      "notes": ""
+    },
+    {
+      "id": "deepseek-v4-flash-0731",
+      "name": "DeepSeek-V4-Flash-0731",
+      "date": "2026-07-31",
+      "source_url": null,
+      "notes": ""
+    },
+    {
+      "id": "deepseek-v4-pro-0813",
+      "name": "DeepSeek-V4-Pro-0813",
+      "date": "2026-08-12",
+      "source_url": null,
+      "notes": ""
+    },
+    {
+      "id": "deepseek-v4-flash-vision-exp",
+      "name": "DeepSeek-V4-Flash-Vision-Exp",
+      "date": "2026-08-21",
+      "source_url": null,
+      "notes": ""
+    }
+  ]
+}
